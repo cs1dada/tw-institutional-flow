@@ -1,0 +1,81 @@
+name: 每日更新資料
+
+on:
+  schedule:
+    # UTC 08:40 = 台灣 16:40，週一至週五。
+    # 上市三大法人約 16:00 後才公布，因此不能更早。
+    # GitHub 的排程不保證準時，實際可能延後數分鐘到數十分鐘。
+    - cron: '40 8 * * 1-5'
+  workflow_dispatch:
+
+# 需要寫入權限才能把更新後的 docs 推回 repo
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: 安裝相依套件
+        run: pip install -r requirements.txt
+
+      # 資料庫不納入版本控制，改用快取在每次執行之間保存。
+      # key 每次都不同以便存入新版，restore-keys 則取回最近一次的內容。
+      - name: 還原資料庫快取
+        uses: actions/cache@v4
+        with:
+          path: data/stock.db
+          key: stock-db-${{ github.run_id }}
+          restore-keys: |
+            stock-db-
+
+      - name: 快取不存在時建立資料庫並回補
+        run: |
+          if [ ! -f data/stock.db ]; then
+            echo "找不到資料庫快取，重新建立並回補最近 45 天"
+            python scripts/init_db.py
+            python scripts/backfill.py 45
+          else
+            echo "已還原資料庫快取"
+            python -c "
+          import sqlite3
+          conn = sqlite3.connect('data/stock.db')
+          row = conn.execute('SELECT COUNT(DISTINCT date), MAX(date) FROM industry_daily').fetchone()
+          print(f'現有 {row[0]} 個交易日，最新 {row[1]}')
+          "
+          fi
+
+      - name: 抓取當日資料
+        run: python scripts/daily_job.py
+
+      # 前一次執行可能因投信尚未公布而漏掉部分 ETF，這裡再補抓一次
+      - name: 補抓 ETF 持股
+        run: python scripts/ingest_etf.py
+        continue-on-error: true
+
+      - name: 匯出靜態網站
+        run: python scripts/export_static.py
+
+      - name: 提交並推送
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if git diff --staged --quiet; then
+            echo "資料無變動，略過提交"
+          else
+            git commit -m "chore: 自動更新資料 $(TZ=Asia/Taipei date +%Y-%m-%d)"
+            git push
+          fi

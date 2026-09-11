@@ -73,13 +73,10 @@ cd docs && python -m http.server 8010
 `scripts/daily_job.py` 會依序完成：個股主檔過期時重新抓取、匯入今日資料、
 抓取主動式 ETF 持股、補抓近 7 天內只收錄到單一市場的日期。
 
-若要同步更新線上的靜態網站，在排程後再接兩步：
+線上的靜態網站由 GitHub Actions 每日自動更新（`.github/workflows/daily.yml`，
+台灣時間週一至週五 16:40），本機不需要手動匯出與推送。
 
-```bash
-python scripts/daily_job.py
-python scripts/export_static.py
-git add docs && git commit -m "更新資料" && git push
-```
+因為 Actions 會自動提交 `docs/`，**本機 push 前記得先 `git pull --rebase`**。
 
 Windows 工作排程器設定：
 

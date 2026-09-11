@@ -199,27 +199,54 @@ src="/static/app.js"      →  src="app.js"
 
 ---
 
-## 八、部署流程
+## 八、線上資料的更新方式
 
-每日在本機執行：
+由 GitHub Actions 每日自動執行，不需要本機介入。
 
-```bash
-python scripts/daily_job.py       # 抓當日三大法人與 ETF 持股
-python scripts/export_static.py   # 匯出 JSON 與靜態頁面到 docs/
-git add docs && git commit -m "更新資料" && git push
+### 排程
+
+`.github/workflows/daily.yml`，每週一至週五 UTC 08:40（台灣 16:40）觸發，
+也可在 GitHub 的 Actions 頁面手動執行。選在 16:40 是因為上市三大法人約 16:00
+才公布，更早會抓不到。GitHub 的排程不保證準時，可能延後數分鐘到數十分鐘。
+
+### 流程
+
+```
+還原資料庫快取 → 抓當日資料 → 補抓 ETF 持股 → 匯出 docs/ → commit & push
+                                                              ↓
+                                                      GitHub Pages 自動部署
 ```
 
-push 後 GitHub Pages 自動更新。
+### Actions 沒有資料庫，怎麼辦
 
-GitHub 端只需設定一次：Settings → Pages → Source 選 `main` 分支的 `/docs` 資料夾。
+每次執行都是全新機器，`data/stock.db` 不在版本控制中。因此：
 
-### 為何不用 GitHub Actions 自動抓資料
+- 用 `actions/cache` 在每次執行之間保存資料庫
+- 快取金鑰每次不同以便存入新版，`restore-keys` 以前綴取回最近一次的內容
+- 快取不存在時（首次執行或被 GitHub 清理），自動重新建立並回補最近 45 天
 
-Actions 每次執行都是全新環境，沒有 `stock.db`，需額外處理資料庫的保存與還原；
-且 Actions 的資料庫與本機是兩份獨立資料，可能不同步。
-本機已有每日排程，多接兩行指令即可，架構單純且資料只有一份來源。
+### 兩份資料庫是獨立的
 
-代價是電腦未開機的日子線上資料不會更新。
+這是採用 Actions 自動化後最需要注意的一點：
+
+```
+本機 data/stock.db          ← 你自己用，可任意回補、實驗
+GitHub Actions 的快取        ← 線上資料的來源，自動維護
+```
+
+兩者不同步。線上網站的內容完全由 Actions 那份產生，
+本機的資料庫只影響你本機看到的畫面。
+
+### 對本機操作的影響
+
+Actions 會自動 commit `docs/` 並推回 repo，因此**本機 push 前要先 pull**：
+
+```bash
+git pull --rebase
+```
+
+本機平常不需要再執行 `export_static.py` 與推送 docs；
+若真的手動匯出並推送，會與 Actions 的提交產生分歧，屆時以先推上去的為準。
 
 ---
 
@@ -229,6 +256,7 @@ Actions 每次執行都是全新環境，沒有 `stock.db`，需額外處理資�
 |------|------|
 | 兩種模式的畫面與互動是否一致 | **已驗證**：以 http.server 模擬 GitHub Pages 實測，畫面相同，切換日期與法人別、下鑽、ETF 頁籤皆正常 |
 | 證交所是否擋境外 IP | **已驗證不擋**（自境外呼叫 T86 回傳 stat=OK） |
-| 各投信 API 是否擋境外 | 未驗證；因採本機匯出，實際上不受影響 |
+| 各投信 API 是否擋境外 | **未驗證**：Actions 在境外執行，若投信擋境外則 ETF 持股會抓不到。該步驟設為 continue-on-error，不會中斷其他資料的更新 |
+| GitHub 快取遺失 | 會自動重建並回補最近 45 天，耗時約 5 至 10 分鐘 |
 | repo 體積成長 | 每日新增一批 JSON，一年約 50MB；可限制只保留最近 60 個交易日 |
 | 資料庫不納入版本控制 | `data/stock.db` 仍在 .gitignore 中，不會被推上 GitHub |
