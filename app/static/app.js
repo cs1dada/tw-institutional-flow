@@ -1038,9 +1038,10 @@
 
     function renderEtfTopStocks(payload) {
         var items = payload.items || [];
+        var dateText = (payload.dates || [payload.date]).map(formatDate).join("、");
         document.getElementById("etfTopNote").textContent =
-            "已介接的主動式 ETF 於 " + formatDate(payload.date) +
-            " 合計持有最多的個股，市值以當日收盤價估算";
+            "已介接的主動式 ETF 合計持有最多的個股，市值以收盤價估算。" +
+            "各投信的持股基準日不同，各檔皆取自己的最新快照（" + dateText + "）";
 
         var top = items.slice(0, 15);
         if (top.length) {
@@ -1127,6 +1128,7 @@
         });
         document.getElementById("etfHoldingNote").textContent = current
             ? current.etf_code + " " + (current.etf_name || "") +
+              "　" + formatDate(current.date) +
               "　規模 " + ((current.aum || 0) / YI).toFixed(1) + " 億" +
               "　淨值 " + (current.nav === null ? "--" : current.nav) +
               "　持股 " + current.holding_count + " 檔"
@@ -1147,9 +1149,9 @@
         var note = document.getElementById("etfDataDate");
         Promise.all([
             api("/etf/flow", { date: etfState.date, investor: etfState.investor, limit: 40 }),
-            api("/etf/top-stocks", { date: etfState.date, limit: 30 }),
-            api("/etf/changes", { date: etfState.date }),
-            api("/etf/holdings", { date: etfState.date }),
+            api("/etf/top-stocks", { limit: 30 }),
+            api("/etf/changes", {}),
+            api("/etf/holdings", {}),
         ]).then(function (results) {
             etfState.date = results[0].date;
             note.textContent = formatDate(results[0].date) + "　" + results[0].investor_label;

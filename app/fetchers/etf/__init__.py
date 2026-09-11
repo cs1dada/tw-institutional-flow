@@ -18,11 +18,13 @@
 
 新增投信時，實作一個模組並在 ISSUERS 註冊，再把旗下 ETF 代號加入 ETF_ISSUER。
 """
-from app.fetchers.etf import capital, nomura, uni
+from app.fetchers.etf import allianz, capital, ctbc, nomura, uni
 
 # 投信代號對應的抓取模組
 ISSUERS = {
+    "allianz": allianz,
     "capital": capital,
+    "ctbc": ctbc,
     "nomura": nomura,
     "uni": uni,
 }
@@ -42,6 +44,14 @@ ETF_ISSUER = {
     "00982A": "capital",
     "00992A": "capital",
     "00997A": "capital",
+    # 中信
+    "00406A": "ctbc",
+    "00983A": "ctbc",
+    "00995A": "ctbc",
+    # 安聯
+    "00402A": "allianz",
+    "00984A": "allianz",
+    "00993A": "allianz",
 }
 
 
