@@ -13,14 +13,20 @@
 
 <nav class="sidebar">
     <div class="sidebar-brand">台股法人動向</div>
-    <button type="button" class="nav-item is-active" data-view="industry">
-        <span class="nav-label">類股資金流向</span>
-        <span class="nav-desc">三大法人買賣超</span>
-    </button>
-    <button type="button" class="nav-item" data-view="etf">
-        <span class="nav-label">主動式 ETF</span>
-        <span class="nav-desc">持股與資金動向</span>
-    </button>
+    <div class="nav-group">
+        <button type="button" class="nav-item is-active" data-view="industry">
+            <span class="nav-label">類股資金流向</span>
+            <span class="nav-desc">三大法人買賣超</span>
+        </button>
+        <div class="sub-nav" data-sub="industry"></div>
+    </div>
+    <div class="nav-group">
+        <button type="button" class="nav-item" data-view="etf">
+            <span class="nav-label">主動式 ETF</span>
+            <span class="nav-desc">持股與資金動向</span>
+        </button>
+        <div class="sub-nav" data-sub="etf" hidden></div>
+    </div>
 </nav>
 
 <main class="content">
@@ -72,7 +78,7 @@
     </label>
 </div>
 
-<section class="panel">
+<section class="panel" id="panel-treemap" data-nav="類股資金分布">
     <div class="panel-head panel-head-row">
         <div>
             <h2 id="treemapTitle">類股資金分布</h2>
@@ -86,7 +92,7 @@
     </div>
 </section>
 
-<section class="panel">
+<section class="panel" id="panel-ranking" data-nav="類股資金流向排行">
     <div class="panel-head">
         <h2 id="rankingTitle">類股資金流向排行</h2>
         <p class="panel-note" id="rankingNote">買超與賣超金額最大的各 10 個類股</p>
@@ -96,7 +102,7 @@
     </div>
 </section>
 
-<section class="panel" id="detailPanel">
+<section class="panel" id="detailPanel" data-nav="類股細節">
     <div class="panel-head">
         <h2 id="detailTitle">類股細節</h2>
         <p class="panel-note">於上方點選類股後顯示近 20 個交易日趨勢與個股明細</p>
@@ -114,7 +120,7 @@
     </div>
 </section>
 
-<section class="panel">
+<section class="panel" id="panel-streak" data-nav="連續買賣超類股">
     <div class="panel-head">
         <h2>連續買賣超類股</h2>
         <p class="panel-note">近 10 個交易日中，資金持續同方向流動的類股，依期間累計金額的絕對值由大到小排序</p>
@@ -129,7 +135,7 @@
     </div>
 </section>
 
-<section class="panel">
+<section class="panel" id="panel-stock-rank" data-nav="個股買賣超排行">
     <div class="panel-head">
         <h2>個股買賣超排行</h2>
         <p class="panel-note">當日買超與賣超金額前 20 名（不含 ETF）</p>
@@ -190,7 +196,7 @@
     </div>
 </div>
 
-<section class="panel">
+<section class="panel" id="panel-etf-changes" data-nav="ETF 持股變動">
     <div class="panel-head">
         <h2>ETF 持股變動</h2>
         <p class="panel-note" id="etfChangeNote">與前一交易日的持股快照相比，各 ETF 加碼與減碼了哪些個股</p>
@@ -205,7 +211,7 @@
     </div>
 </section>
 
-<section class="panel">
+<section class="panel" id="panel-etf-top" data-nav="ETF 合計持股">
     <div class="panel-head">
         <h2>ETF 合計持股</h2>
         <p class="panel-note" id="etfTopNote">已介接的主動式 ETF 合計持有最多的個股，市值以當日收盤價估算</p>
@@ -223,7 +229,7 @@
     </div>
 </section>
 
-<section class="panel">
+<section class="panel" id="panel-etf-flow" data-nav="ETF 的法人買賣超">
     <div class="panel-head">
         <h2>ETF 的法人買賣超</h2>
         <p class="panel-note" id="etfFlowNote">法人在市場上買賣這些 ETF 本身的金額，與 ETF 持有哪些股票是不同的兩件事</p>
@@ -233,7 +239,7 @@
     </div>
 </section>
 
-<section class="panel">
+<section class="panel" id="panel-etf-holdings" data-nav="ETF 持股明細">
     <div class="panel-head">
         <h2>已介接 ETF 持股明細</h2>
         <p class="panel-note" id="etfHoldingNote">各檔 ETF 的完整持股，依權重排序</p>

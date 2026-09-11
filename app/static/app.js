@@ -1197,14 +1197,21 @@
 
     /* ===== 頁籤切換 ===== */
 
+    var currentView = "industry";
+    var SCROLL_SPY_OFFSET = 80;   // 區塊上緣進入此距離內即視為目前所在
+    var SCROLL_MARGIN = 16;       // 跳到區塊時保留的上緣空間
+
     function showView(name) {
+        currentView = name;
         Array.prototype.forEach.call(document.querySelectorAll(".view"), function (view) {
             view.hidden = view.id !== "view-" + name;
         });
         Array.prototype.forEach.call(document.querySelectorAll(".nav-item"), function (item) {
             item.classList.toggle("is-active", item.dataset.view === name);
         });
+        showSubNav(name);
         window.scrollTo(0, 0);
+        highlightSubNav();
 
         if (name === "etf") {
             if (!etfState.loaded) {
@@ -1224,19 +1231,90 @@
         }
     }
 
+    /* 依各功能頁的區塊產生側邊欄第二層。
+       區塊標題會隨下鑽變動，因此導覽文字取自 data-nav 而非 h2。 */
+    function buildSubNav() {
+        Array.prototype.forEach.call(document.querySelectorAll(".sub-nav"), function (nav) {
+            var view = document.getElementById("view-" + nav.dataset.sub);
+            if (!view) {
+                return;
+            }
+            var panels = view.querySelectorAll("[data-nav]");
+            nav.innerHTML = Array.prototype.map.call(panels, function (panel) {
+                return '<button type="button" class="sub-item" data-target="' + panel.id + '">' +
+                    panel.dataset.nav + "</button>";
+            }).join("");
+        });
+    }
+
+    function showSubNav(name) {
+        Array.prototype.forEach.call(document.querySelectorAll(".sub-nav"), function (nav) {
+            nav.hidden = nav.dataset.sub !== name;
+        });
+    }
+
+    /* 捲動時標示目前所在的區塊 */
+    function highlightSubNav() {
+        // 先清掉所有標示，避免切換功能頁後殘留另一頁的高亮
+        Array.prototype.forEach.call(document.querySelectorAll(".sub-item"), function (item) {
+            item.classList.remove("is-current");
+        });
+        var nav = document.querySelector('.sub-nav[data-sub="' + currentView + '"]');
+        if (!nav || nav.hidden) {
+            return;
+        }
+        var items = nav.querySelectorAll(".sub-item");
+        var current = null;
+        // 已捲到頁面底部時，最後一個區塊不可能到達頂端，直接標示它
+        var atBottom = window.scrollY + window.innerHeight >=
+            document.documentElement.scrollHeight - 4;
+        if (atBottom && items.length) {
+            current = items[items.length - 1];
+        } else {
+            Array.prototype.forEach.call(items, function (item) {
+                var panel = document.getElementById(item.dataset.target);
+                if (panel && panel.getBoundingClientRect().top <= SCROLL_SPY_OFFSET) {
+                    current = item;
+                }
+            });
+        }
+        // 停在頁面頂端時還沒有區塊越過判定線，預設標示第一個
+        if (!current && items.length) {
+            current = items[0];
+        }
+        Array.prototype.forEach.call(items, function (item) {
+            item.classList.toggle("is-current", item === current);
+        });
+    }
+
     function bindNav() {
         document.querySelector(".sidebar").addEventListener("click", function (event) {
             var item = event.target.closest(".nav-item");
             if (item) {
                 showView(item.dataset.view);
+                return;
+            }
+            var sub = event.target.closest(".sub-item");
+            if (sub) {
+                var panel = document.getElementById(sub.dataset.target);
+                if (panel) {
+                    // 自行計算目標位置，並留出一點上緣空間
+                    var top = panel.getBoundingClientRect().top + window.scrollY - SCROLL_MARGIN;
+                    window.scrollTo(0, Math.max(0, top));
+                    highlightSubNav();
+                }
             }
         });
+
+        window.addEventListener("scroll", highlightSubNav, { passive: true });
     }
 
     function init() {
         bindControls();
         bindEtfControls();
+        buildSubNav();
         bindNav();
+        highlightSubNav();
         api("/dates", { limit: 120 }).then(function (payload) {
             var select = document.getElementById("dateSelect");
             var items = payload.items || payload.dates.map(function (date) {
