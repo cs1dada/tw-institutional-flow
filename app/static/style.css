@@ -38,9 +38,10 @@ body {
 }
 
 .viz-root {
-    max-width: 1280px;
+    /* 資料密集的畫面放寬較實用，treemap 格子變大、個股名稱不易被截斷 */
+    max-width: 1760px;
     margin: 0 auto;
-    padding: 24px 20px 48px;
+    padding: 24px 24px 48px;
 }
 
 .page-head {
