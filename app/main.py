@@ -44,7 +44,10 @@ def asset_version():
 @app.get("/")
 def index():
     html = (config.STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    return HTMLResponse(html.replace("{{v}}", asset_version()))
+    html = html.replace("{{v}}", asset_version())
+    # 本機由 FastAPI 提供頁面，前端走 API；靜態版由匯出腳本寫死為 static
+    html = html.replace("{{mode}}", "api")
+    return HTMLResponse(html)
 
 
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")

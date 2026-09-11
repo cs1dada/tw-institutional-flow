@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app import config
 from app.db import connect
+from app.services import dataset
 
 router = APIRouter(prefix="/api")
 
@@ -353,3 +354,50 @@ def industry_composition(
         "top": top,
         "items": items,
     }
+
+
+# 以下端點回傳「未經法人別篩選的完整資料」，與靜態匯出的 JSON 格式相同，
+# 前端依 mode 決定要打這些端點或讀 JSON 檔，之後的篩選一律在前端進行。
+
+
+@router.get("/meta")
+def api_meta():
+    """交易日清單與基本資訊。"""
+    conn = connect()
+    try:
+        return dataset.build_meta(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/day/{date}")
+def api_day(date: str):
+    """單一交易日的完整資料。"""
+    conn = connect()
+    try:
+        payload = dataset.build_day(conn, date)
+    finally:
+        conn.close()
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"查無 {date} 的資料")
+    return payload
+
+
+@router.get("/history")
+def api_history(days: int = Query(dataset.HISTORY_DAYS, ge=1, le=250)):
+    """各類股近 N 個交易日的趨勢。"""
+    conn = connect()
+    try:
+        return dataset.build_history(conn, days)
+    finally:
+        conn.close()
+
+
+@router.get("/etf-data")
+def api_etf_data():
+    """主動式 ETF 的持股、合計持股與持股變動。"""
+    conn = connect()
+    try:
+        return dataset.build_etf(conn)
+    finally:
+        conn.close()

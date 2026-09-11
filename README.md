@@ -50,10 +50,36 @@ python -m uvicorn app.main:app --port 8000
 
 瀏覽器開啟 <http://127.0.0.1:8000>。API 文件位於 <http://127.0.0.1:8000/docs>。
 
+### 匯出靜態網站
+
+```bash
+python scripts/export_static.py        # 預設匯出最近 60 個交易日
+python scripts/export_static.py 30     # 只匯出最近 30 個交易日
+```
+
+把資料庫查詢結果預先算好存成 JSON 輸出到 `docs/`，供 GitHub Pages 託管。
+資料庫仍是唯一來源，本機使用不受影響。
+
+本機可用以下方式模擬 GitHub Pages 環境驗證：
+
+```bash
+cd docs && python -m http.server 8010
+```
+
+資料流、兩種模式的差異與設計取捨詳見 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
 ### 每日自動更新
 
 `scripts/daily_job.py` 會依序完成：個股主檔過期時重新抓取、匯入今日資料、
-補抓近 7 天內只收錄到單一市場的日期。
+抓取主動式 ETF 持股、補抓近 7 天內只收錄到單一市場的日期。
+
+若要同步更新線上的靜態網站，在排程後再接兩步：
+
+```bash
+python scripts/daily_job.py
+python scripts/export_static.py
+git add docs && git commit -m "更新資料" && git push
+```
 
 Windows 工作排程器設定：
 
