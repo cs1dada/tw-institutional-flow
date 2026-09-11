@@ -99,10 +99,11 @@
 
     var SOURCES = {
         static: {
-            meta: function () { return "data/meta.json"; },
-            day: function (date) { return "data/day/" + date + ".json"; },
-            history: function () { return "data/history.json"; },
-            etf: function () { return "data/etf.json"; },
+            // meta 很小且必須是最新的，加上時間戳避開 GitHub Pages 的快取
+            meta: function () { return "data/meta.json?t=" + Date.now(); },
+            day: function (date) { return versioned("data/day/" + date + ".json"); },
+            history: function () { return versioned("data/history.json"); },
+            etf: function () { return versioned("data/etf.json"); },
         },
         api: {
             meta: function () { return "/api/meta"; },
@@ -113,6 +114,13 @@
     };
 
     var cache = { meta: null, days: {}, history: null, etf: null };
+
+    /* 以 meta 的產生時間作為版本號。資料更新後版本改變，
+       訪客會取得新內容；未更新時仍可沿用瀏覽器快取。 */
+    function versioned(path) {
+        var version = cache.meta && cache.meta.generated_at;
+        return version ? path + "?v=" + version : path;
+    }
 
     function fetchJson(url) {
         return fetch(url).then(function (resp) {
