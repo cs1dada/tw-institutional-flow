@@ -63,8 +63,32 @@ def export_page():
     (DOCS_DIR / ".nojekyll").write_text("", encoding="utf-8")
 
 
+def check_not_shrinking(target_dates, force):
+    """避免以較少的資料覆蓋既有輸出。
+
+    線上資料由 GitHub Actions 維護，其資料庫與本機各自獨立且通常較完整。
+    若在本機匯出後推送，會讓線上的交易日數倒退，且不易察覺。
+    """
+    existing = sorted(path.stem for path in (DATA_DIR / "day").glob("*.json"))
+    if not existing or len(target_dates) >= len(existing):
+        return True
+    print(f"既有輸出有 {len(existing)} 個交易日（{existing[0]} ~ {existing[-1]}），")
+    print(f"本次只會產生 {len(target_dates)} 個（{target_dates[-1]} ~ {target_dates[0]}）。")
+    print()
+    print("線上資料由 GitHub Actions 維護，其資料庫通常比本機完整。")
+    print("若這是刻意為之，請加上 --force 再執行：")
+    print("    python scripts/export_static.py --force")
+    if force:
+        print()
+        print("已指定 --force，繼續覆蓋。")
+        return True
+    return False
+
+
 def main():
-    days = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DAYS
+    args = [a for a in sys.argv[1:] if a != "--force"]
+    force = "--force" in sys.argv
+    days = int(args[0]) if args else DEFAULT_DAYS
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
     conn = connect()
@@ -74,6 +98,9 @@ def main():
         # meta 只保留實際匯出的日期，避免前端選到沒有檔案的日子
         meta["dates"] = [item for item in meta["dates"] if item["date"] in set(target_dates)]
         meta["exported_days"] = len(target_dates)
+
+        if not check_not_shrinking(target_dates, force):
+            return
 
         total = write_json(DATA_DIR / "meta.json", meta)
         print(f"meta.json  {total / 1024:.1f} KB")

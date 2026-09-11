@@ -245,8 +245,11 @@ Actions 會自動 commit `docs/` 並推回 repo，因此**本機 push 前要先 
 git pull --rebase
 ```
 
-本機平常不需要再執行 `export_static.py` 與推送 docs；
-若真的手動匯出並推送，會與 Actions 的提交產生分歧，屆時以先推上去的為準。
+本機平常不需要再執行 `export_static.py` 與推送 docs。
+
+由於 Actions 的資料庫通常比本機完整（快取遺失時會回補 45 天），在本機匯出會
+讓線上的交易日數倒退，且這種錯誤不易察覺。因此 `export_static.py` 會在偵測到
+輸出天數少於既有內容時中止，需明確加上 `--force` 才會覆蓋。
 
 ---
 
