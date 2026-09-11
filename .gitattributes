@@ -1,0 +1,7 @@
+# 一律以 LF 儲存，避免 Windows 環境把換行轉成 CRLF
+* text=auto eol=lf
+
+# 二進位與壓縮過的檔案不做換行轉換
+*.png binary
+*.db binary
+app/static/vendor/*.js -text

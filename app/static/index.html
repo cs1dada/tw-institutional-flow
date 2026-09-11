@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>台股三大法人類股資金流向</title>
+<link rel="stylesheet" href="/static/style.css?v={{v}}">
+</head>
+<body>
+<div class="viz-root">
+
+<header class="page-head">
+    <div>
+        <h1>台股三大法人類股資金流向</h1>
+        <p class="subtitle">
+            上市 + 上櫃合併統計，金額為<strong>估算值</strong>（買賣超股數 × 當日收盤價），單位億元
+        </p>
+    </div>
+    <div class="head-meta">
+        <span id="dataDate" class="data-date">載入中</span>
+    </div>
+</header>
+
+<div class="controls">
+    <label class="control">
+        <span class="control-label">交易日</span>
+        <select id="dateSelect"></select>
+    </label>
+
+    <div class="control">
+        <span class="control-label">法人別</span>
+        <div class="tabs" id="investorTabs" role="tablist">
+            <button type="button" class="tab is-active" data-investor="all" role="tab">三大法人</button>
+            <button type="button" class="tab" data-investor="foreign" role="tab">外資</button>
+            <button type="button" class="tab" data-investor="trust" role="tab">投信</button>
+            <button type="button" class="tab" data-investor="dealer" role="tab">自營商</button>
+        </div>
+    </div>
+
+    <label class="control control-inline">
+        <input type="checkbox" id="cvdToggle">
+        <span>色盲友善配色</span>
+    </label>
+
+    <label class="control control-inline">
+        <input type="checkbox" id="etfToggle">
+        <span>納入 ETF</span>
+    </label>
+
+    <label class="control control-inline">
+        <input type="checkbox" id="stocksToggle" checked>
+        <span>類股內顯示個股</span>
+    </label>
+</div>
+
+<section class="panel">
+    <div class="panel-head panel-head-row">
+        <div>
+            <h2 id="treemapTitle">類股資金分布</h2>
+            <p class="panel-note" id="treemapNote">面積為買賣超金額規模，<span class="swatch swatch-buy"></span>買超　<span class="swatch swatch-sell"></span>賣超。點擊類股可下鑽至個股。</p>
+        </div>
+        <button type="button" class="back-btn" id="backBtn" hidden>返回全類股</button>
+    </div>
+    <div class="chart-stack">
+        <div id="treemap" class="chart chart-tall"></div>
+        <div id="treemapTitles" class="chart-overlay"></div>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2 id="rankingTitle">類股資金流向排行</h2>
+        <p class="panel-note" id="rankingNote">買超與賣超金額最大的各 10 個類股</p>
+    </div>
+    <div class="chart-scroll" id="rankingScroll">
+        <div id="ranking" class="chart chart-tall"></div>
+    </div>
+</section>
+
+<section class="panel" id="detailPanel">
+    <div class="panel-head">
+        <h2 id="detailTitle">類股細節</h2>
+        <p class="panel-note">於上方點選類股後顯示近 20 個交易日趨勢與個股明細</p>
+    </div>
+    <div class="detail-grid">
+        <div id="trend" class="chart"></div>
+        <div class="table-wrap">
+            <table class="data-table" id="stockTable">
+                <thead>
+                    <tr><th>代號</th><th>名稱</th><th class="num">收盤</th><th class="num">買賣超（億）</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2>連續買賣超類股</h2>
+        <p class="panel-note">近 10 個交易日中，資金持續同方向流動的類股，依期間累計金額的絕對值由大到小排序</p>
+    </div>
+    <div class="table-wrap">
+        <table class="data-table" id="streakTable">
+            <thead>
+                <tr><th>類股</th><th>方向</th><th class="num">連續天數</th><th class="num">期間累計（億）</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2>個股買賣超排行</h2>
+        <p class="panel-note">當日買超與賣超金額前 20 名（不含 ETF）</p>
+    </div>
+    <div class="detail-grid">
+        <div class="table-wrap">
+            <h3 class="table-title">買超前 20</h3>
+            <table class="data-table" id="buyTable">
+                <thead>
+                    <tr><th>代號</th><th>名稱</th><th>類股</th><th class="num">金額（億）</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="table-wrap">
+            <h3 class="table-title">賣超前 20</h3>
+            <table class="data-table" id="sellTable">
+                <thead>
+                    <tr><th>代號</th><th>名稱</th><th>類股</th><th class="num">金額（億）</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<footer class="page-foot">
+    資料來源：臺灣證券交易所、證券櫃檯買賣中心公開資料。金額為以收盤價估算之推估值，僅供參考，非投資建議。
+</footer>
+
+</div>
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/app.js?v={{v}}"></script>
+</body>
+</html>
