@@ -7,6 +7,7 @@
 由前端依使用者選擇挑欄位。
 """
 import logging
+from datetime import datetime
 
 from app import config
 from app.fetchers import etf
@@ -363,4 +364,7 @@ def build_meta(conn):
         "dates": list_dates(conn),
         "supported_etfs": etf.supported_etfs(),
         "latest_date": latest_date(conn),
+        # 作為其他資料檔的版本號，資料更新後可立即讓訪客取得新內容，
+        # 不必等 GitHub Pages 的快取（max-age=600）過期
+        "generated_at": datetime.now().strftime("%Y%m%d%H%M%S"),
     }

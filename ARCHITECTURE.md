@@ -173,7 +173,7 @@ docs/                        匯出產生，GitHub Pages 的根目錄
 
 ## 七、匯出時的三項轉換
 
-`index.html` 不能直接複製，必須處理三件事：
+`index.html` 不能直接複製，必須處理下列幾件事：
 
 **1. 絕對路徑改為相對路徑**
 
@@ -192,7 +192,13 @@ src="/static/app.js"      →  src="app.js"
 
 `{{v}}` 原本由 FastAPI 即時注入，靜態版需在匯出時寫入實際數值。
 
-**3. 注入模式標記**
+**3. 資料檔的版本參數**
+
+GitHub Pages 對靜態檔案回應 `Cache-Control: max-age=600`，資料更新後訪客可能
+在十分鐘內仍看到舊內容。因此 `meta.json` 每次請求都附上時間戳以取得最新版，
+其餘資料檔則帶上 meta 中的 `generated_at` 作為版本；資料未更新時仍可沿用快取。
+
+**4. 注入模式標記**
 
 `{{mode}}` 替換為 `static`，讓 `app.js` 知道該讀 JSON 而非打 API。
 本機由 FastAPI 注入 `api`。不以網域判斷，避免誤判。
