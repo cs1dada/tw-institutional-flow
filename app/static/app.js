@@ -167,7 +167,10 @@
                         otherScale = (parentAbs * OTHER_MAX_RATIO) / otherSum;
                         namedScale = (parentAbs * (1 - OTHER_MAX_RATIO)) / namedSum;
                     }
-                    titleInfo[name] = name + "　" + toYi(row.amount, options.digits) + " 億";
+                    titleInfo[name] = {
+                        name: name,
+                        amount: toYi(row.amount, options.digits) + " 億",
+                    };
                     node.children = kids.map(function (kid) {
                         var scale = kid.is_other ? otherScale : namedScale;
                         return {
@@ -265,6 +268,17 @@
     var TITLE_MIN_WIDTH = 74;
     var TITLE_MIN_HEIGHT = 48;
 
+    var titleMeasureCtx = null;
+
+    /* 量測標題文字的實際像素寬度，字體需與 .tm-title 的樣式一致 */
+    function measureTitle(text) {
+        if (!titleMeasureCtx) {
+            titleMeasureCtx = document.createElement("canvas").getContext("2d");
+            titleMeasureCtx.font = '600 12px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+        }
+        return titleMeasureCtx.measureText(text).width;
+    }
+
     /* 依 treemap 實際版面，把母項（類股）名稱疊在區塊上緣。
        ECharts 的 upperLabel 在兩層資料下不會生效，因此改用 HTML 疊加層。 */
     function drawTreemapTitles() {
@@ -294,7 +308,10 @@
             }
             var el = document.createElement("div");
             el.className = "tm-title";
-            el.textContent = title;
+            // 寬度不足以完整顯示金額時只留類股名，避免出現「-28.」這種半截數字
+            var full = title.name + "　" + title.amount;
+            var usable = layout.width - 16;
+            el.textContent = measureTitle(full) <= usable ? full : title.name;
             el.style.left = (layout.x + 2) + "px";
             el.style.top = (layout.y + 2) + "px";
             el.style.width = (layout.width - 4) + "px";
