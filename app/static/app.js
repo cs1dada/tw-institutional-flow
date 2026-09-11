@@ -1008,8 +1008,9 @@
 
     function renderEtfFlow(payload) {
         document.getElementById("etfFlowNote").textContent =
-            "主動式 ETF 於 " + formatDate(payload.date) + " 被" + payload.investor_label +
-            "買賣超的金額排行，共 " + payload.items.length + " 檔";
+            formatDate(payload.date) + " " + payload.investor_label +
+            "買賣這些 ETF 本身的金額排行，共 " + payload.items.length +
+            " 檔。自營商多為造市部位，不宜視為看多看空訊號";
         var rows = payload.items.filter(function (row) {
             return Math.abs(row.amount) > 0;
         });
