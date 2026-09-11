@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 .playwright-mcp/
 *.png
+# README 使用的畫面截圖需要納入版控
+!docs/*.png
