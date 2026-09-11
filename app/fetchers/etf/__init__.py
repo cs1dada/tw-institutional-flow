@@ -18,18 +18,30 @@
 
 新增投信時，實作一個模組並在 ISSUERS 註冊，再把旗下 ETF 代號加入 ETF_ISSUER。
 """
-from app.fetchers.etf import nomura
+from app.fetchers.etf import capital, nomura, uni
 
 # 投信代號對應的抓取模組
 ISSUERS = {
+    "capital": capital,
     "nomura": nomura,
+    "uni": uni,
 }
 
 # ETF 代號對應的投信。目前只收錄已完成介接的投信
 ETF_ISSUER = {
+    # 野村
     "00980A": "nomura",
     "00985A": "nomura",
     "00999A": "nomura",
+    # 統一
+    "00403A": "uni",
+    "00411A": "uni",
+    "00981A": "uni",
+    "00988A": "uni",
+    # 群益
+    "00982A": "capital",
+    "00992A": "capital",
+    "00997A": "capital",
 }
 
 

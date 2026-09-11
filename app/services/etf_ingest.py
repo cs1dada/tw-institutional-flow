@@ -4,6 +4,7 @@
 「今天買了什麼」是由相鄰兩日的持股快照相減得出。
 """
 import logging
+import time
 from datetime import datetime
 
 from app.db import connect
@@ -11,9 +12,32 @@ from app.fetchers import etf
 
 logger = logging.getLogger(__name__)
 
+# 投信 API 偶爾會回傳不完整的內容，重試通常就能取得
+MAX_ATTEMPTS = 3
+RETRY_SECONDS = 2.0
+
 
 def _now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _fetch_with_retry(code):
+    """抓取持股，回傳空內容時重試。"""
+    last_error = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            data = etf.fetch_holdings(code)
+            if data and data.get("holdings"):
+                return data
+            logger.warning("%s 第 %d 次取得空內容", code, attempt)
+        except Exception as exc:
+            last_error = exc
+            logger.warning("%s 第 %d 次失敗：%s", code, attempt, exc)
+        if attempt < MAX_ATTEMPTS:
+            time.sleep(RETRY_SECONDS)
+    if last_error:
+        raise last_error
+    return None
 
 
 def ingest_etf_holdings(conn=None, codes=None):
@@ -25,7 +49,7 @@ def ingest_etf_holdings(conn=None, codes=None):
     try:
         for code in targets:
             try:
-                data = etf.fetch_holdings(code)
+                data = _fetch_with_retry(code)
             except Exception as exc:
                 logger.error("%s 抓取失敗：%s", code, exc)
                 results.append({"etf_code": code, "status": "error", "message": str(exc)[:200]})
