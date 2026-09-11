@@ -3,7 +3,8 @@
 執行內容：
 1. 個股主檔超過 7 天未更新時重新抓取 (新上市、產業重分類)
 2. 匯入今日資料
-3. 補抓近 7 天內只收錄到單一市場的日期
+3. 抓取主動式 ETF 持股快照 (各投信只提供當日資料，必須每日累積)
+4. 補抓近 7 天內只收錄到單一市場的日期
    (上市約 16:00 才公布，若排程跑得早會只拿到上櫃)
 
 用法：
@@ -18,6 +19,7 @@ _bootstrap.setup_logging()
 
 from app import config
 from app.db import connect
+from app.services.etf_ingest import ingest_etf_holdings
 from app.services.ingest import ingest_date, update_stock_info
 
 STOCK_INFO_MAX_AGE_DAYS = 7
@@ -61,6 +63,14 @@ def main():
         today = date.today().strftime("%Y%m%d")
         count = ingest_date(today, conn=conn)
         print(f"{today} 匯入 {count} 筆")
+
+        # 主動式 ETF 持股只有當日快照，必須每天抓才能累積出變動
+        etf_results = ingest_etf_holdings(conn=conn)
+        etf_ok = [r for r in etf_results if r["status"] == "ok"]
+        print(f"ETF 持股完成 {len(etf_ok)} / {len(etf_results)} 檔")
+        for r in etf_results:
+            if r["status"] != "ok":
+                print(f"  {r['etf_code']} {r['status']} {r.get('message', '')}")
 
         pending = [d for d in find_incomplete_dates(conn) if d != today]
         for date_str in pending:

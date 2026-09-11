@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config
+from app.api.etf_routes import router as etf_router
 from app.api.routes import router
 from app.db import init_schema
 
@@ -22,6 +23,7 @@ async def lifespan(app):
 
 app = FastAPI(title="台股三大法人類股資金流向", version="1.0.0", lifespan=lifespan)
 app.include_router(router)
+app.include_router(etf_router)
 
 
 @app.middleware("http")

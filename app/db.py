@@ -60,6 +60,32 @@ CREATE TABLE IF NOT EXISTS industry_daily (
 );
 CREATE INDEX IF NOT EXISTS idx_industry_daily_date ON industry_daily(date);
 
+-- 主動式 ETF 每日持股明細 (由各投信官網取得，日期以其淨值日為準)
+CREATE TABLE IF NOT EXISTS etf_holding (
+    date            TEXT NOT NULL,
+    etf_code        TEXT NOT NULL,
+    stock_code      TEXT NOT NULL,
+    stock_name      TEXT,
+    shares          INTEGER NOT NULL DEFAULT 0,
+    weight          REAL,
+    PRIMARY KEY (date, etf_code, stock_code)
+);
+CREATE INDEX IF NOT EXISTS idx_etf_holding_date ON etf_holding(date);
+CREATE INDEX IF NOT EXISTS idx_etf_holding_stock ON etf_holding(stock_code);
+
+-- 主動式 ETF 每日規模與淨值，同時記錄該日持股是否成功取得
+CREATE TABLE IF NOT EXISTS etf_snapshot (
+    date            TEXT NOT NULL,
+    etf_code        TEXT NOT NULL,
+    issuer          TEXT NOT NULL,
+    nav             REAL,
+    aum             REAL,
+    units           INTEGER,
+    holding_count   INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (date, etf_code)
+);
+
 -- 每日匯入狀態，供重跑與排錯使用
 CREATE TABLE IF NOT EXISTS ingest_log (
     date            TEXT NOT NULL,

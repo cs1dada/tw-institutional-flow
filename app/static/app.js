@@ -102,6 +102,9 @@
         Object.keys(charts).forEach(function (key) {
             charts[key].resize();
         });
+        Object.keys(etfCharts).forEach(function (key) {
+            etfCharts[key].resize();
+        });
         drawTreemapTitles();
     });
 
@@ -920,8 +923,317 @@
         return names.length ? "僅" + names.join("、") : "無資料";
     }
 
+    /* ===== 主動式 ETF 頁籤 ===== */
+
+    var etfState = {
+        date: null,
+        investor: "all",
+        etfCode: null,     // 持股明細目前選中的 ETF
+        loaded: false,
+    };
+
+    var etfCharts = {};
+
+    /* 圖表容器在隱藏狀態下初始化會取得 0 尺寸，因此延到首次顯示時才建立 */
+    function ensureEtfCharts() {
+        if (!etfCharts.flow) {
+            etfCharts.flow = echarts.init(document.getElementById("etfFlowChart"));
+            etfCharts.top = echarts.init(document.getElementById("etfTopChart"));
+        }
+    }
+
+    /* 共用的橫向長條圖，用於 ETF 買賣超與合計持股 */
+    function renderBarChart(chart, rows, options) {
+        var ordered = rows.slice().reverse();
+        var container = chart.getDom();
+        container.style.height = Math.max(320, rows.length * 22 + 60) + "px";
+        chart.resize();
+
+        chart.setOption({
+            grid: { left: options.labelWidth || 150, right: 80, top: 10, bottom: 34 },
+            tooltip: Object.assign({}, baseTooltip, {
+                trigger: "item",
+                formatter: function (params) {
+                    var row = params.data && params.data.detail;
+                    return row ? options.tooltip(row) : "";
+                },
+            }),
+            xAxis: {
+                type: "value",
+                name: options.unit || "億元",
+                nameTextStyle: { color: COLORS.muted, fontSize: 11 },
+                axisLine: { show: false },
+                axisTick: { show: false },
+                axisLabel: { color: COLORS.muted, fontSize: 11 },
+                splitLine: { lineStyle: { color: COLORS.border, type: "dashed" } },
+            },
+            yAxis: {
+                type: "category",
+                data: ordered.map(options.nameOf),
+                axisLine: { lineStyle: { color: COLORS.border } },
+                axisTick: { show: false },
+                axisLabel: { color: COLORS.secondary, fontSize: 12 },
+            },
+            series: [
+                {
+                    type: "bar",
+                    barWidth: 14,
+                    barMaxWidth: 14,
+                    data: ordered.map(function (row) {
+                        var value = options.valueOf(row);
+                        var positive = value >= 0;
+                        return {
+                            value: value,
+                            detail: row,
+                            itemStyle: {
+                                color: options.colorOf ? options.colorOf(row) : polarityColor(value),
+                                borderRadius: positive ? [0, 4, 4, 0] : [4, 0, 0, 4],
+                            },
+                            label: { position: positive ? "right" : "left" },
+                        };
+                    }),
+                    label: {
+                        show: true,
+                        formatter: function (params) {
+                            var value = params.data.value;
+                            return (value > 0 ? "+" : "") + value.toFixed(2);
+                        },
+                        color: COLORS.secondary,
+                        fontSize: 12,
+                    },
+                },
+            ],
+        }, true);
+    }
+
+    function renderEtfFlow(payload) {
+        document.getElementById("etfFlowNote").textContent =
+            "主動式 ETF 於 " + formatDate(payload.date) + " 被" + payload.investor_label +
+            "買賣超的金額排行，共 " + payload.items.length + " 檔";
+        var rows = payload.items.filter(function (row) {
+            return Math.abs(row.amount) > 0;
+        });
+        if (!rows.length) {
+            etfCharts.flow.clear();
+            return;
+        }
+        renderBarChart(etfCharts.flow, rows, {
+            nameOf: function (row) {
+                return row.code + " " + row.name;
+            },
+            valueOf: function (row) {
+                return row.amount / YI;
+            },
+            tooltip: function (row) {
+                return (
+                    "<strong>" + row.code + " " + row.name + "</strong><br>" +
+                    "買賣超　" + toYi(row.amount, 2) + " 億<br>" +
+                    "外資　　" + toYi(row.foreign_amt, 2) + " 億<br>" +
+                    "投信　　" + toYi(row.trust_amt, 2) + " 億<br>" +
+                    "自營商　" + toYi(row.dealer_amt, 2) + " 億"
+                );
+            },
+        });
+    }
+
+    function renderEtfTopStocks(payload) {
+        var items = payload.items || [];
+        document.getElementById("etfTopNote").textContent =
+            "已介接的主動式 ETF 於 " + formatDate(payload.date) +
+            " 合計持有最多的個股，市值以當日收盤價估算";
+
+        var top = items.slice(0, 15);
+        if (top.length) {
+            renderBarChart(etfCharts.top, top, {
+                labelWidth: 170,
+                nameOf: function (row) {
+                    return row.stock_code + " " + (row.stock_name || "");
+                },
+                valueOf: function (row) {
+                    return (row.market_value || 0) / YI;
+                },
+                colorOf: function () {
+                    return COLORS.foreign;
+                },
+                tooltip: function (row) {
+                    return (
+                        "<strong>" + row.stock_code + " " + (row.stock_name || "") + "</strong><br>" +
+                        "合計市值　" + ((row.market_value || 0) / YI).toFixed(2) + " 億<br>" +
+                        "合計股數　" + (row.total_shares || 0).toLocaleString() + " 股<br>" +
+                        "持有檔數　" + row.etf_count + " 檔 ETF<br>" +
+                        "<span style='color:" + COLORS.muted + "'>" + (row.industry || "") + "</span>"
+                    );
+                },
+            });
+        }
+
+        fillTable("etfTopTable", items, function (row) {
+            return (
+                "<tr><td>" + row.stock_code + "</td><td>" + (row.stock_name || "") + "</td>" +
+                "<td>" + (row.industry || "") + "</td>" +
+                '<td class="num">' + row.etf_count + "</td>" +
+                '<td class="num">' + ((row.market_value || 0) / YI).toFixed(2) + "</td></tr>"
+            );
+        }, 5);
+    }
+
+    var CHANGE_LABELS = { new: "新進", removed: "移除", changed: "調整" };
+
+    function renderEtfChanges(payload) {
+        var note = document.getElementById("etfChangeNote");
+        if (payload.message) {
+            note.textContent = payload.message;
+            fillTable("etfChangeTable", [], null, 6);
+            return;
+        }
+        note.textContent =
+            formatDate(payload.prev_date) + " 至 " + formatDate(payload.date) +
+            " 的持股變動，共 " + payload.items.length + " 筆";
+        fillTable("etfChangeTable", payload.items, function (row) {
+            var cls = row.share_change >= 0 ? "val-buy" : "val-sell";
+            var shares = (row.share_change > 0 ? "+" : "") + row.share_change.toLocaleString();
+            return (
+                "<tr><td>" + row.etf_code + "</td><td>" + row.stock_code + "</td>" +
+                "<td>" + (row.stock_name || "") + "</td>" +
+                '<td class="' + cls + '">' + (CHANGE_LABELS[row.change_type] || row.change_type) + "</td>" +
+                '<td class="num ' + cls + '">' + shares + "</td>" +
+                '<td class="num ' + cls + '">' + toYi(row.value_change || 0, 2) + "</td></tr>"
+            );
+        }, 6);
+    }
+
+    function renderEtfHoldings(payload) {
+        var etfs = payload.etfs || [];
+        var picker = document.getElementById("etfPicker");
+        if (!etfs.length) {
+            picker.innerHTML = '<span class="notice">尚無持股資料，請先執行 scripts/ingest_etf.py</span>';
+            fillTable("etfHoldingTable", [], null, 5);
+            return;
+        }
+
+        if (!etfState.etfCode || !etfs.some(function (e) { return e.etf_code === etfState.etfCode; })) {
+            etfState.etfCode = etfs[0].etf_code;
+        }
+
+        picker.innerHTML = etfs.map(function (e) {
+            var active = e.etf_code === etfState.etfCode ? " is-active" : "";
+            return '<button type="button" class="chip' + active + '" data-etf="' + e.etf_code + '">' +
+                e.etf_code + " " + (e.etf_name || "") + "</button>";
+        }).join("");
+
+        var current = etfs.filter(function (e) { return e.etf_code === etfState.etfCode; })[0];
+        var rows = (payload.items || []).filter(function (row) {
+            return row.etf_code === etfState.etfCode;
+        });
+        document.getElementById("etfHoldingNote").textContent = current
+            ? current.etf_code + " " + (current.etf_name || "") +
+              "　規模 " + ((current.aum || 0) / YI).toFixed(1) + " 億" +
+              "　淨值 " + (current.nav === null ? "--" : current.nav) +
+              "　持股 " + current.holding_count + " 檔"
+            : "";
+
+        fillTable("etfHoldingTable", rows, function (row) {
+            return (
+                "<tr><td>" + row.stock_code + "</td><td>" + (row.stock_name || "") + "</td>" +
+                '<td class="num">' + (row.shares || 0).toLocaleString() + "</td>" +
+                '<td class="num">' + (row.weight === null ? "--" : row.weight.toFixed(2)) + "</td>" +
+                '<td class="num">' + (row.close === null || row.close === undefined ? "--" : row.close.toFixed(2)) + "</td></tr>"
+            );
+        }, 5);
+    }
+
+    function loadEtfView() {
+        ensureEtfCharts();
+        var note = document.getElementById("etfDataDate");
+        Promise.all([
+            api("/etf/flow", { date: etfState.date, investor: etfState.investor, limit: 40 }),
+            api("/etf/top-stocks", { date: etfState.date, limit: 30 }),
+            api("/etf/changes", { date: etfState.date }),
+            api("/etf/holdings", { date: etfState.date }),
+        ]).then(function (results) {
+            etfState.date = results[0].date;
+            note.textContent = formatDate(results[0].date) + "　" + results[0].investor_label;
+            renderEtfFlow(results[0]);
+            renderEtfTopStocks(results[1]);
+            renderEtfChanges(results[2]);
+            renderEtfHoldings(results[3]);
+            etfState.loaded = true;
+        }).catch(function (error) {
+            note.textContent = "載入失敗：" + error.message;
+            console.error(error);
+        });
+    }
+
+    function bindEtfControls() {
+        document.getElementById("etfInvestorTabs").addEventListener("click", function (event) {
+            var button = event.target.closest(".tab");
+            if (!button) {
+                return;
+            }
+            Array.prototype.forEach.call(this.querySelectorAll(".tab"), function (tab) {
+                tab.classList.toggle("is-active", tab === button);
+            });
+            etfState.investor = button.dataset.investor;
+            loadEtfView();
+        });
+
+        document.getElementById("etfDateSelect").addEventListener("change", function (event) {
+            etfState.date = event.target.value;
+            loadEtfView();
+        });
+
+        document.getElementById("etfPicker").addEventListener("click", function (event) {
+            var button = event.target.closest(".chip");
+            if (!button) {
+                return;
+            }
+            etfState.etfCode = button.dataset.etf;
+            loadEtfView();
+        });
+    }
+
+    /* ===== 頁籤切換 ===== */
+
+    function showView(name) {
+        Array.prototype.forEach.call(document.querySelectorAll(".view"), function (view) {
+            view.hidden = view.id !== "view-" + name;
+        });
+        Array.prototype.forEach.call(document.querySelectorAll(".nav-item"), function (item) {
+            item.classList.toggle("is-active", item.dataset.view === name);
+        });
+        window.scrollTo(0, 0);
+
+        if (name === "etf") {
+            if (!etfState.loaded) {
+                loadEtfView();
+            } else {
+                ensureEtfCharts();
+                Object.keys(etfCharts).forEach(function (key) {
+                    etfCharts[key].resize();
+                });
+            }
+        } else {
+            // 從隱藏狀態切回來時容器尺寸才確定，需要重新計算
+            Object.keys(charts).forEach(function (key) {
+                charts[key].resize();
+            });
+            drawTreemapTitles();
+        }
+    }
+
+    function bindNav() {
+        document.querySelector(".sidebar").addEventListener("click", function (event) {
+            var item = event.target.closest(".nav-item");
+            if (item) {
+                showView(item.dataset.view);
+            }
+        });
+    }
+
     function init() {
         bindControls();
+        bindEtfControls();
+        bindNav();
         api("/dates", { limit: 120 }).then(function (payload) {
             var select = document.getElementById("dateSelect");
             var items = payload.items || payload.dates.map(function (date) {
@@ -941,6 +1253,14 @@
             state.date = preferred ? preferred.date : null;
             if (state.date) {
                 select.value = state.date;
+            }
+
+            // ETF 頁籤共用同一份交易日清單
+            var etfSelect = document.getElementById("etfDateSelect");
+            etfSelect.innerHTML = select.innerHTML;
+            etfState.date = state.date;
+            if (etfState.date) {
+                etfSelect.value = etfState.date;
             }
             loadDay();
         }).catch(function (error) {

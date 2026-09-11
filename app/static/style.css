@@ -334,3 +334,136 @@ h2 {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+/* 左側頁籤與內容區的兩欄佈局 */
+.layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+}
+
+.sidebar {
+    position: sticky;
+    top: 24px;
+    flex: none;
+    width: 190px;
+    padding: 14px 12px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.sidebar-brand {
+    padding: 0 8px 12px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.nav-item {
+    display: block;
+    width: 100%;
+    padding: 9px 10px;
+    margin-bottom: 4px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.nav-item:hover {
+    background: var(--surface-0);
+    color: var(--text-primary);
+}
+
+.nav-item.is-active {
+    background: var(--surface-0);
+    color: var(--text-primary);
+}
+
+.nav-item.is-active .nav-label {
+    font-weight: 600;
+}
+
+.nav-label {
+    display: block;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.nav-desc {
+    display: block;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+/* min-width 讓 flex 子元素可以收縮，圖表才不會撐破版面 */
+.content {
+    flex: 1;
+    min-width: 0;
+}
+
+.controls-inline {
+    gap: 8px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+}
+
+.chip {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-1);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.chip:hover {
+    color: var(--text-primary);
+}
+
+.chip.is-active {
+    background: var(--surface-0);
+    border-color: var(--text-muted);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.notice {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-0);
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+@media (max-width: 900px) {
+    .layout {
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .sidebar {
+        position: static;
+        display: flex;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .sidebar-brand {
+        display: none;
+    }
+
+    .nav-item {
+        margin-bottom: 0;
+    }
+}

@@ -3,11 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>台股三大法人類股資金流向</title>
+<title>台股法人動向</title>
 <link rel="stylesheet" href="/static/style.css?v={{v}}">
 </head>
 <body>
 <div class="viz-root">
+
+<div class="layout">
+
+<nav class="sidebar">
+    <div class="sidebar-brand">台股法人動向</div>
+    <button type="button" class="nav-item is-active" data-view="industry">
+        <span class="nav-label">類股資金流向</span>
+        <span class="nav-desc">三大法人買賣超</span>
+    </button>
+    <button type="button" class="nav-item" data-view="etf">
+        <span class="nav-label">主動式 ETF</span>
+        <span class="nav-desc">持股與資金動向</span>
+    </button>
+</nav>
+
+<main class="content">
+
+<!-- 類股資金流向 -->
+<section class="view" id="view-industry">
 
 <header class="page-head">
     <div>
@@ -137,9 +156,108 @@
     </div>
 </section>
 
+</section>
+
+<!-- 主動式 ETF -->
+<section class="view" id="view-etf" hidden>
+
+<header class="page-head">
+    <div>
+        <h1>主動式 ETF 動向</h1>
+        <p class="subtitle">
+            主動式 ETF 依規定每日揭露完整持股，本頁彙整持股明細與 ETF 自身的法人買賣超
+        </p>
+    </div>
+    <div class="head-meta">
+        <span id="etfDataDate" class="data-date">載入中</span>
+    </div>
+</header>
+
+<div class="controls">
+    <label class="control">
+        <span class="control-label">交易日</span>
+        <select id="etfDateSelect"></select>
+    </label>
+
+    <div class="control">
+        <span class="control-label">法人別</span>
+        <div class="tabs" id="etfInvestorTabs" role="tablist">
+            <button type="button" class="tab is-active" data-investor="all" role="tab">三大法人</button>
+            <button type="button" class="tab" data-investor="foreign" role="tab">外資</button>
+            <button type="button" class="tab" data-investor="trust" role="tab">投信</button>
+            <button type="button" class="tab" data-investor="dealer" role="tab">自營商</button>
+        </div>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2>ETF 持股變動</h2>
+        <p class="panel-note" id="etfChangeNote">與前一交易日的持股快照相比，各 ETF 加碼與減碼了哪些個股</p>
+    </div>
+    <div class="table-wrap">
+        <table class="data-table" id="etfChangeTable">
+            <thead>
+                <tr><th>ETF</th><th>代號</th><th>個股</th><th>異動</th><th class="num">股數變動</th><th class="num">估算金額（億）</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2>ETF 合計持股</h2>
+        <p class="panel-note" id="etfTopNote">已介接的主動式 ETF 合計持有最多的個股，市值以當日收盤價估算</p>
+    </div>
+    <div class="detail-grid">
+        <div id="etfTopChart" class="chart"></div>
+        <div class="table-wrap">
+            <table class="data-table" id="etfTopTable">
+                <thead>
+                    <tr><th>代號</th><th>名稱</th><th>類股</th><th class="num">ETF 檔數</th><th class="num">市值（億）</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2>ETF 自身資金動向</h2>
+        <p class="panel-note" id="etfFlowNote">主動式 ETF 當日被三大法人買賣超的金額排行</p>
+    </div>
+    <div class="chart-scroll">
+        <div id="etfFlowChart" class="chart chart-tall"></div>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2>已介接 ETF 持股明細</h2>
+        <p class="panel-note" id="etfHoldingNote">各檔 ETF 的完整持股，依權重排序</p>
+    </div>
+    <div class="controls controls-inline" id="etfPicker"></div>
+    <div class="table-wrap">
+        <table class="data-table" id="etfHoldingTable">
+            <thead>
+                <tr><th>代號</th><th>名稱</th><th class="num">股數</th><th class="num">權重(%)</th><th class="num">收盤</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</section>
+
+</section>
+
 <footer class="page-foot">
-    資料來源：臺灣證券交易所、證券櫃檯買賣中心公開資料。金額為以收盤價估算之推估值，僅供參考，非投資建議。
+    資料來源：臺灣證券交易所、證券櫃檯買賣中心公開資料，主動式 ETF 持股取自各投信官網。
+    金額為以收盤價估算之推估值，僅供參考，非投資建議。
 </footer>
+
+</main>
+</div>
 
 </div>
 <script src="/static/vendor/echarts.min.js"></script>
