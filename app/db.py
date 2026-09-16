@@ -60,6 +60,21 @@ CREATE TABLE IF NOT EXISTS industry_daily (
 );
 CREATE INDEX IF NOT EXISTS idx_industry_daily_date ON industry_daily(date);
 
+-- 大盤指數每日開高低收與成交量值 (供 K 線圖使用)
+CREATE TABLE IF NOT EXISTS index_daily (
+    date            TEXT NOT NULL,
+    index_code      TEXT NOT NULL,
+    open            REAL,
+    high            REAL,
+    low             REAL,
+    close           REAL,
+    volume          INTEGER NOT NULL DEFAULT 0,   -- 成交股數
+    turnover        INTEGER NOT NULL DEFAULT 0,   -- 成交金額 (元)
+    change          REAL,                          -- 漲跌點數
+    PRIMARY KEY (date, index_code)
+);
+CREATE INDEX IF NOT EXISTS idx_index_daily_code ON index_daily(index_code, date);
+
 -- 主動式 ETF 每日持股明細 (由各投信官網取得，日期以其淨值日為準)
 CREATE TABLE IF NOT EXISTS etf_holding (
     date            TEXT NOT NULL,

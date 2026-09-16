@@ -28,6 +28,13 @@
         </button>
         <div class="sub-nav" data-sub="etf" hidden></div>
     </div>
+    <div class="nav-group">
+        <button type="button" class="nav-item" data-view="index">
+            <span class="nav-label">大盤指數</span>
+            <span class="nav-desc">加權指數 K 線</span>
+        </button>
+        <div class="sub-nav" data-sub="index" hidden></div>
+    </div>
 </nav>
 
 <main class="content">
@@ -250,6 +257,72 @@
         <table class="data-table" id="etfHoldingTable">
             <thead>
                 <tr><th>代號</th><th>名稱</th><th class="num">股數</th><th class="num">權重(%)</th><th class="num">收盤</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</section>
+
+</section>
+
+<!-- 大盤指數 -->
+<section class="view" id="view-index" hidden>
+
+<header class="page-head">
+    <div>
+        <h1>加權指數 K 線</h1>
+        <p class="subtitle">
+            發行量加權股價指數的開高低收與成交金額，週線與月線由日線聚合而成
+        </p>
+    </div>
+    <div class="head-meta">
+        <span id="indexDataDate" class="data-date">載入中</span>
+    </div>
+</header>
+
+<div class="controls">
+    <div class="control">
+        <span class="control-label">週期</span>
+        <div class="tabs" id="indexPeriodTabs" role="tablist">
+            <button type="button" class="tab is-active" data-period="daily" role="tab">日線</button>
+            <button type="button" class="tab" data-period="weekly" role="tab">週線</button>
+            <button type="button" class="tab" data-period="monthly" role="tab">月線</button>
+        </div>
+    </div>
+
+    <div class="control">
+        <span class="control-label">區間</span>
+        <div class="tabs" id="indexRangeTabs" role="tablist"></div>
+    </div>
+
+    <label class="control">
+        <span class="control-label">起</span>
+        <input type="date" id="indexFrom">
+    </label>
+
+    <label class="control">
+        <span class="control-label">迄</span>
+        <input type="date" id="indexTo">
+    </label>
+</div>
+
+<section class="panel" id="panel-index-candle" data-nav="加權指數 K 線">
+    <div class="panel-head">
+        <h2 id="indexCandleTitle">加權指數日線</h2>
+        <p class="panel-note" id="indexCandleNote">載入中</p>
+    </div>
+    <div id="indexCandle" class="chart chart-candle"></div>
+</section>
+
+<section class="panel" id="panel-index-table" data-nav="近期行情">
+    <div class="panel-head">
+        <h2>近期行情</h2>
+        <p class="panel-note" id="indexTableNote">依目前選擇的週期列出最近 20 根 K 棒</p>
+    </div>
+    <div class="table-wrap">
+        <table class="data-table" id="indexTable">
+            <thead>
+                <tr><th>期間</th><th class="num">開盤</th><th class="num">最高</th><th class="num">最低</th><th class="num">收盤</th><th class="num">漲跌</th><th class="num">漲跌幅</th><th class="num">成交金額（億）</th></tr>
             </thead>
             <tbody></tbody>
         </table>

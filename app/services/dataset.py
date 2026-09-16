@@ -22,6 +22,8 @@ RANKING_LIMIT = 20
 STREAK_DAYS = 10
 # 類股趨勢圖的天數
 HISTORY_DAYS = 60
+# 指數 K 線圖的交易日數，約十年，足以讓月線有百根以上的 K 棒
+INDEX_DAYS = 2500
 
 AMOUNT_FIELDS = ("total_amt", "foreign_amt", "trust_amt", "dealer_amt")
 
@@ -356,6 +358,40 @@ def build_history(conn, days=HISTORY_DAYS):
             }
         )
     return {"dates": sorted(dates), "industries": industries}
+
+
+# 指數日線以陣列輸出，欄位名只寫一次；週線與月線由前端自日線聚合而成，
+# 不必各存一份
+INDEX_FIELDS = ("date", "open", "high", "low", "close", "turnover", "change")
+
+
+def build_index(conn, index_code=config.INDEX_TAIEX, days=INDEX_DAYS):
+    """大盤指數近 N 個交易日的日線，供 K 線圖使用。"""
+    rows = conn.execute(
+        """
+        SELECT date, open, high, low, close, turnover, change
+        FROM index_daily
+        WHERE index_code = ?
+        ORDER BY date DESC
+        LIMIT ?
+        """,
+        (index_code, days),
+    ).fetchall()
+    items = [
+        [
+            row["date"], row["open"], row["high"], row["low"], row["close"],
+            # 成交金額以億元為單位，保留兩位小數即可
+            round((row["turnover"] or 0) / 1e8, 2),
+            row["change"],
+        ]
+        for row in reversed(rows)
+    ]
+    return {
+        "index_code": index_code,
+        "name": config.INDEX_NAMES.get(index_code, index_code),
+        "fields": list(INDEX_FIELDS),
+        "items": items,
+    }
 
 
 def build_meta(conn):

@@ -118,6 +118,9 @@ def main():
 
         size = write_json(DATA_DIR / "etf.json", dataset.build_etf(conn))
         print(f"etf.json  {size / 1024:.1f} KB")
+
+        size = write_json(DATA_DIR / "index.json", dataset.build_index(conn))
+        print(f"index.json  {size / 1024:.1f} KB")
     finally:
         conn.close()
 

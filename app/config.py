@@ -14,6 +14,12 @@ MARKET_TPEX = "TPEX"
 TWSE_INST_URL = "https://www.twse.com.tw/rwd/zh/fund/T86"
 TWSE_QUOTE_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX"
 
+# 大盤指數 (發行量加權股價指數)，兩支端點皆一次回傳整月
+TWSE_INDEX_OHLC_URL = "https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST"
+TWSE_INDEX_VALUE_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK"
+INDEX_TAIEX = "TAIEX"
+INDEX_NAMES = {INDEX_TAIEX: "發行量加權股價指數"}
+
 # 上櫃 (櫃買中心)
 TPEX_INST_URL = "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade"
 TPEX_QUOTE_URL = "https://www.tpex.org.tw/www/zh-tw/afterTrading/otc"

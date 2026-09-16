@@ -393,6 +393,16 @@ def api_history(days: int = Query(dataset.HISTORY_DAYS, ge=1, le=250)):
         conn.close()
 
 
+@router.get("/index-data")
+def api_index_data():
+    """大盤指數日線，週線與月線由前端聚合。"""
+    conn = connect()
+    try:
+        return dataset.build_index(conn)
+    finally:
+        conn.close()
+
+
 @router.get("/etf-data")
 def api_etf_data():
     """主動式 ETF 的持股、合計持股與持股變動。"""
