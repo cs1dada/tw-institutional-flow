@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>台股法人動向</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2032%2032%27%3E%3Crect%20width%3D%2732%27%20height%3D%2732%27%20rx%3D%276%27%20fill%3D%27%23fcfcfb%27%2F%3E%3Crect%20x%3D%274%27%20y%3D%274%27%20width%3D%2714%27%20height%3D%2724%27%20rx%3D%272%27%20fill%3D%27%23e34948%27%2F%3E%3Crect%20x%3D%2720%27%20y%3D%274%27%20width%3D%278%27%20height%3D%2713%27%20rx%3D%272%27%20fill%3D%27%231baf7a%27%2F%3E%3Crect%20x%3D%2720%27%20y%3D%2719%27%20width%3D%278%27%20height%3D%279%27%20rx%3D%272%27%20fill%3D%27%231baf7a%27%2F%3E%3C%2Fsvg%3E">
-<link rel="stylesheet" href="style.css?v=1789546837">
+<link rel="stylesheet" href="style.css?v=1789566127">
 </head>
 <body>
 <div class="viz-root">
@@ -27,6 +27,13 @@
             <span class="nav-desc">持股與資金動向</span>
         </button>
         <div class="sub-nav" data-sub="etf" hidden></div>
+    </div>
+    <div class="nav-group">
+        <button type="button" class="nav-item" data-view="index">
+            <span class="nav-label">大盤指數</span>
+            <span class="nav-desc">加權指數 K 線</span>
+        </button>
+        <div class="sub-nav" data-sub="index" hidden></div>
     </div>
 </nav>
 
@@ -258,6 +265,72 @@
 
 </section>
 
+<!-- 大盤指數 -->
+<section class="view" id="view-index" hidden>
+
+<header class="page-head">
+    <div>
+        <h1>加權指數 K 線</h1>
+        <p class="subtitle">
+            發行量加權股價指數的開高低收與成交金額，週線與月線由日線聚合而成
+        </p>
+    </div>
+    <div class="head-meta">
+        <span id="indexDataDate" class="data-date">載入中</span>
+    </div>
+</header>
+
+<div class="controls">
+    <div class="control">
+        <span class="control-label">週期</span>
+        <div class="tabs" id="indexPeriodTabs" role="tablist">
+            <button type="button" class="tab is-active" data-period="daily" role="tab">日線</button>
+            <button type="button" class="tab" data-period="weekly" role="tab">週線</button>
+            <button type="button" class="tab" data-period="monthly" role="tab">月線</button>
+        </div>
+    </div>
+
+    <div class="control">
+        <span class="control-label">區間</span>
+        <div class="tabs" id="indexRangeTabs" role="tablist"></div>
+    </div>
+
+    <label class="control">
+        <span class="control-label">起</span>
+        <input type="date" id="indexFrom">
+    </label>
+
+    <label class="control">
+        <span class="control-label">迄</span>
+        <input type="date" id="indexTo">
+    </label>
+</div>
+
+<section class="panel" id="panel-index-candle" data-nav="加權指數 K 線">
+    <div class="panel-head">
+        <h2 id="indexCandleTitle">加權指數日線</h2>
+        <p class="panel-note" id="indexCandleNote">載入中</p>
+    </div>
+    <div id="indexCandle" class="chart chart-candle"></div>
+</section>
+
+<section class="panel" id="panel-index-table" data-nav="近期行情">
+    <div class="panel-head">
+        <h2>近期行情</h2>
+        <p class="panel-note" id="indexTableNote">依目前選擇的週期列出最近 20 根 K 棒</p>
+    </div>
+    <div class="table-wrap">
+        <table class="data-table" id="indexTable">
+            <thead>
+                <tr><th>期間</th><th class="num">開盤</th><th class="num">最高</th><th class="num">最低</th><th class="num">收盤</th><th class="num">漲跌</th><th class="num">漲跌幅</th><th class="num">成交金額（億）</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</section>
+
+</section>
+
 <footer class="page-foot">
     資料來源：臺灣證券交易所、證券櫃檯買賣中心公開資料，主動式 ETF 持股取自各投信官網。
     金額為以收盤價估算之推估值，僅供參考，非投資建議。
@@ -269,6 +342,6 @@
 </div>
 <script>window.APP_MODE = "static";</script>
 <script src="vendor/echarts.min.js"></script>
-<script src="app.js?v=1789546837"></script>
+<script src="app.js?v=1789566127"></script>
 </body>
 </html>

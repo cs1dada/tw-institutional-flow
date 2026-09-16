@@ -104,16 +104,18 @@
             day: function (date) { return versioned("data/day/" + date + ".json"); },
             history: function () { return versioned("data/history.json"); },
             etf: function () { return versioned("data/etf.json"); },
+            index: function () { return versioned("data/index.json"); },
         },
         api: {
             meta: function () { return "/api/meta"; },
             day: function (date) { return "/api/day/" + date; },
             history: function () { return "/api/history"; },
             etf: function () { return "/api/etf-data"; },
+            index: function () { return "/api/index-data"; },
         },
     };
 
-    var cache = { meta: null, days: {}, history: null, etf: null };
+    var cache = { meta: null, days: {}, history: null, etf: null, index: null };
 
     /* 以 meta 的產生時間作為版本號。資料更新後版本改變，
        訪客會取得新內容；未更新時仍可沿用瀏覽器快取。 */
@@ -175,6 +177,16 @@
         }
         return fetchJson(SOURCES[MODE].etf()).then(function (data) {
             cache.etf = data;
+            return data;
+        });
+    }
+
+    function loadIndexData() {
+        if (cache.index) {
+            return Promise.resolve(cache.index);
+        }
+        return fetchJson(SOURCES[MODE].index()).then(function (data) {
+            cache.index = data;
             return data;
         });
     }
@@ -328,6 +340,9 @@
         Object.keys(etfCharts).forEach(function (key) {
             etfCharts[key].resize();
         });
+        if (indexChart) {
+            indexChart.resize();
+        }
         drawTreemapTitles();
     });
 
@@ -1102,6 +1117,9 @@
             state.cvdMode = event.target.checked;
             applyPalette();
             loadDay();
+            if (indexState.loaded) {
+                renderIndexView();
+            }
         });
     }
 
@@ -1392,6 +1410,512 @@
         });
     }
 
+    /* ===== 大盤指數 K 線 ===== */
+
+    var indexState = {
+        period: "daily",
+        range: "1y",       // 區間快捷的代碼，custom 表示自訂起訖日
+        from: null,        // 自訂區間的起日 (YYYYMMDD)
+        to: null,
+        loaded: false,
+        data: null,        // 日線原始資料，切換週期與區間時不需重新請求
+    };
+
+    var indexChart = null;
+
+    var PERIOD_LABELS = { daily: "日線", weekly: "週線", monthly: "月線" };
+    // 各週期的均線參數：日線為 5/20/60 日，週線約當季線與半年線，月線為半年到兩年
+    var PERIOD_MA = { daily: [5, 20, 60], weekly: [5, 13, 26], monthly: [6, 12, 24] };
+    // 區間快捷，months 為 null 表示全部資料
+    var RANGE_PRESETS = [
+        { key: "3m", label: "3 月", months: 3 },
+        { key: "6m", label: "6 月", months: 6 },
+        { key: "1y", label: "1 年", months: 12 },
+        { key: "3y", label: "3 年", months: 36 },
+        { key: "5y", label: "5 年", months: 60 },
+        { key: "all", label: "全部", months: null },
+    ];
+    // 切換週期時套用的預設區間，K 棒數量才不會過少或過密
+    var DEFAULT_RANGE = { daily: "1y", weekly: "3y", monthly: "all" };
+    var MA_COLORS = [COLORS.foreign, COLORS.trust, COLORS.dealer];
+    var INDEX_TABLE_ROWS = 20;
+
+    /* 指數日線同樣以陣列傳來，用到時才轉成物件並快取 */
+    function indexRows(payload) {
+        if (!payload._rows) {
+            payload._rows = (payload.items || []).map(function (row) {
+                var obj = {};
+                payload.fields.forEach(function (name, index) {
+                    obj[name] = row[index];
+                });
+                return obj;
+            });
+        }
+        return payload._rows;
+    }
+
+    /* 該交易日所屬期間的代碼：週線取當週週一，月線取當月 */
+    function periodKey(dateStr, period) {
+        if (period === "monthly") {
+            return dateStr.slice(0, 6);
+        }
+        var day = new Date(
+            +dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8)
+        );
+        // getDay() 以週日為 0，往回推到當週的週一
+        day.setDate(day.getDate() - ((day.getDay() + 6) % 7));
+        var month = ("0" + (day.getMonth() + 1)).slice(-2);
+        var date = ("0" + day.getDate()).slice(-2);
+        return "" + day.getFullYear() + month + date;
+    }
+
+    /* 日線聚合為週線或月線：開盤取期初、收盤取期末、高低取極值、成交金額加總 */
+    function aggregateIndex(rows, period) {
+        if (period === "daily") {
+            return rows.map(function (row) {
+                return {
+                    key: row.date,
+                    label: formatDate(row.date),
+                    date: row.date,
+                    start_date: row.date,
+                    open: row.open,
+                    high: row.high,
+                    low: row.low,
+                    close: row.close,
+                    turnover: row.turnover || 0,
+                    days: 1,
+                };
+            });
+        }
+
+        var bars = [];
+        var current = null;
+        rows.forEach(function (row) {
+            var key = periodKey(row.date, period);
+            if (!current || current.key !== key) {
+                current = {
+                    key: key,
+                    date: row.date,
+                    start_date: row.date,
+                    open: row.open,
+                    high: row.high,
+                    low: row.low,
+                    close: row.close,
+                    turnover: row.turnover || 0,
+                    days: 1,
+                };
+                bars.push(current);
+                return;
+            }
+            current.date = row.date;
+            current.high = Math.max(current.high, row.high);
+            current.low = Math.min(current.low, row.low);
+            current.close = row.close;
+            current.turnover += row.turnover || 0;
+            current.days += 1;
+        });
+
+        bars.forEach(function (bar) {
+            bar.label = period === "monthly"
+                ? bar.key.slice(0, 4) + "-" + bar.key.slice(4, 6)
+                : formatDate(bar.start_date);
+        });
+        return bars;
+    }
+
+    /* 漲跌一律以前一根 K 棒的收盤價計算，三種週期的定義才會一致 */
+    function withChange(bars) {
+        bars.forEach(function (bar, index) {
+            var prev = index > 0 ? bars[index - 1].close : null;
+            bar.diff = prev === null ? null : bar.close - prev;
+            bar.pct = prev ? (bar.close - prev) / prev * 100 : null;
+        });
+        return bars;
+    }
+
+    /* 移動平均，資料不足的前幾根以 "-" 表示，ECharts 會自動留白 */
+    function movingAverage(bars, size) {
+        var values = [];
+        var sum = 0;
+        bars.forEach(function (bar, index) {
+            sum += bar.close;
+            if (index >= size) {
+                sum -= bars[index - size].close;
+            }
+            values.push(index >= size - 1 ? +(sum / size).toFixed(2) : "-");
+        });
+        return values;
+    }
+
+    /* 圖表容器在隱藏狀態下初始化會取得 0 尺寸，因此延到首次顯示時才建立 */
+    function ensureIndexChart() {
+        if (!indexChart) {
+            indexChart = echarts.init(document.getElementById("indexCandle"));
+        }
+        return indexChart;
+    }
+
+    function signed(value, digits) {
+        if (value === null || value === undefined) {
+            return "--";
+        }
+        return (value > 0 ? "+" : "") + value.toFixed(digits === undefined ? 2 : digits);
+    }
+
+    /* 區間換算出的起訖日 (YYYYMMDD)，rows 為由舊到新的日線 */
+    function rangeBounds(rows) {
+        var first = rows[0].date;
+        var last = rows[rows.length - 1].date;
+        if (indexState.range === "custom") {
+            var from = indexState.from || first;
+            var to = indexState.to || last;
+            return from <= to ? { from: from, to: to } : { from: to, to: from };
+        }
+        var preset = RANGE_PRESETS.filter(function (item) {
+            return item.key === indexState.range;
+        })[0];
+        if (!preset || !preset.months) {
+            return { from: first, to: last };
+        }
+        var day = new Date(+last.slice(0, 4), +last.slice(4, 6) - 1, +last.slice(6, 8));
+        day.setMonth(day.getMonth() - preset.months);
+        var month = ("0" + (day.getMonth() + 1)).slice(-2);
+        var date = ("0" + day.getDate()).slice(-2);
+        return { from: "" + day.getFullYear() + month + date, to: last };
+    }
+
+    /* 區間對應到的 K 棒索引。K 棒本身仍是全部資料，均線才不會在區間起點斷頭 */
+    function visibleRange(bars, bounds) {
+        var start = bars.length - 1;
+        for (var i = 0; i < bars.length; i++) {
+            if (bars[i].date >= bounds.from) {
+                start = i;
+                break;
+            }
+        }
+        var end = start;
+        for (var j = bars.length - 1; j >= start; j--) {
+            if (bars[j].start_date <= bounds.to) {
+                end = j;
+                break;
+            }
+        }
+        return { start: start, end: end };
+    }
+
+    function renderIndexCandle(bars, period, zoom) {
+        var chart = ensureIndexChart();
+        var labels = bars.map(function (bar) {
+            return bar.label;
+        });
+        var maSizes = PERIOD_MA[period];
+
+        var maSeries = maSizes.map(function (size, index) {
+            return {
+                name: "MA" + size,
+                type: "line",
+                data: movingAverage(bars, size),
+                smooth: true,
+                symbol: "none",
+                lineStyle: { width: 1.5, color: MA_COLORS[index] },
+                itemStyle: { color: MA_COLORS[index] },
+                z: 3,
+            };
+        });
+
+        chart.setOption({
+            animation: false,
+            legend: {
+                data: maSizes.map(function (size) {
+                    return "MA" + size;
+                }),
+                top: 0,
+                icon: "roundRect",
+                itemWidth: 10,
+                itemHeight: 10,
+                itemGap: 18,
+                textStyle: { color: COLORS.secondary, fontSize: 12 },
+            },
+            axisPointer: { link: [{ xAxisIndex: "all" }] },
+            tooltip: Object.assign({}, baseTooltip, {
+                trigger: "axis",
+                axisPointer: { type: "cross", label: { backgroundColor: COLORS.secondary } },
+                formatter: function (params) {
+                    var bar = bars[params[0].dataIndex];
+                    if (!bar) {
+                        return "";
+                    }
+                    var color = bar.diff === null || bar.diff >= 0 ? buyColor() : sellColor();
+                    var lines = [
+                        "<strong>" + bar.label +
+                        (bar.days > 1 ? "　" + bar.days + " 個交易日" : "") + "</strong>",
+                        "開盤　" + bar.open.toFixed(2),
+                        "最高　" + bar.high.toFixed(2),
+                        "最低　" + bar.low.toFixed(2),
+                        "收盤　" + bar.close.toFixed(2),
+                        "漲跌　<span style='color:" + color + "'>" + signed(bar.diff) +
+                        "（" + signed(bar.pct) + "%）</span>",
+                        "成交金額　" + bar.turnover.toFixed(0) + " 億",
+                    ];
+                    params.forEach(function (item) {
+                        if (item.seriesType === "line" && item.data !== "-") {
+                            lines.push(item.marker + item.seriesName + "　" + item.data);
+                        }
+                    });
+                    return lines.join("<br>");
+                },
+            }),
+            grid: [
+                { left: 68, right: 24, top: 36, height: 350 },
+                { left: 68, right: 24, top: 410, height: 84 },
+            ],
+            xAxis: [
+                {
+                    type: "category",
+                    data: labels,
+                    axisLine: { lineStyle: { color: COLORS.border } },
+                    axisTick: { show: false },
+                    // 日期只標在下方的成交量副圖，兩張圖之間不再夾一排文字
+                    axisLabel: { show: false },
+                    splitLine: { show: false },
+                    min: "dataMin",
+                    max: "dataMax",
+                },
+                {
+                    type: "category",
+                    gridIndex: 1,
+                    data: labels,
+                    axisLine: { lineStyle: { color: COLORS.border } },
+                    axisTick: { show: false },
+                    axisLabel: { color: COLORS.muted, fontSize: 11 },
+                    splitLine: { show: false },
+                    min: "dataMin",
+                    max: "dataMax",
+                },
+            ],
+            yAxis: [
+                {
+                    scale: true,
+                    name: "指數",
+                    nameTextStyle: { color: COLORS.muted, fontSize: 11 },
+                    axisLine: { show: false },
+                    axisTick: { show: false },
+                    axisLabel: { color: COLORS.muted, fontSize: 11 },
+                    splitLine: { lineStyle: { color: COLORS.border, type: "dashed" } },
+                },
+                {
+                    gridIndex: 1,
+                    name: "成交金額（億）",
+                    nameGap: 10,
+                    nameTextStyle: { color: COLORS.muted, fontSize: 11, align: "left" },
+                    splitNumber: 2,
+                    axisLine: { show: false },
+                    axisTick: { show: false },
+                    axisLabel: { color: COLORS.muted, fontSize: 11 },
+                    splitLine: { lineStyle: { color: COLORS.border, type: "dashed" } },
+                },
+            ],
+            dataZoom: [
+                {
+                    type: "inside",
+                    xAxisIndex: [0, 1],
+                    startValue: zoom.start,
+                    endValue: zoom.end,
+                },
+                {
+                    type: "slider",
+                    xAxisIndex: [0, 1],
+                    startValue: zoom.start,
+                    endValue: zoom.end,
+                    bottom: 12,
+                    height: 20,
+                    borderColor: COLORS.border,
+                    fillerColor: "rgba(42, 120, 214, 0.12)",
+                    handleStyle: { color: COLORS.surface, borderColor: COLORS.muted },
+                    textStyle: { color: COLORS.muted, fontSize: 11 },
+                },
+            ],
+            series: [
+                {
+                    name: "K 線",
+                    type: "candlestick",
+                    data: bars.map(function (bar) {
+                        return [bar.open, bar.close, bar.low, bar.high];
+                    }),
+                    itemStyle: {
+                        // ECharts 的 color 為收高於開的陽線，台股慣例為紅漲綠跌
+                        color: buyColor(),
+                        color0: sellColor(),
+                        borderColor: buyColor(),
+                        borderColor0: sellColor(),
+                    },
+                    z: 2,
+                },
+            ].concat(maSeries, [
+                {
+                    name: "成交金額",
+                    type: "bar",
+                    xAxisIndex: 1,
+                    yAxisIndex: 1,
+                    data: bars.map(function (bar) {
+                        return {
+                            value: +bar.turnover.toFixed(0),
+                            itemStyle: {
+                                color: bar.close >= bar.open ? buyColor() : sellColor(),
+                                opacity: 0.55,
+                            },
+                        };
+                    }),
+                },
+            ]),
+        }, true);
+    }
+
+    /* 表格只列出區間內最後幾根，與圖上看到的範圍一致 */
+    function renderIndexTable(bars, zoom) {
+        var inRange = bars.slice(zoom.start, zoom.end + 1);
+        var rows = inRange.slice(-INDEX_TABLE_ROWS).reverse();
+        fillTable("indexTable", rows, function (bar) {
+            var cls = bar.diff === null || bar.diff >= 0 ? "val-buy" : "val-sell";
+            return (
+                "<tr><td>" + bar.label + "</td>" +
+                '<td class="num">' + bar.open.toFixed(2) + "</td>" +
+                '<td class="num">' + bar.high.toFixed(2) + "</td>" +
+                '<td class="num">' + bar.low.toFixed(2) + "</td>" +
+                '<td class="num">' + bar.close.toFixed(2) + "</td>" +
+                '<td class="num ' + cls + '">' + signed(bar.diff) + "</td>" +
+                '<td class="num ' + cls + '">' + signed(bar.pct) + "%</td>" +
+                '<td class="num">' + bar.turnover.toFixed(0) + "</td></tr>"
+            );
+        }, 8);
+        return rows.length;
+    }
+
+    /* 區間快捷按鈕；自訂區間時全部不反白 */
+    function buildIndexRangeTabs() {
+        document.getElementById("indexRangeTabs").innerHTML = RANGE_PRESETS.map(function (preset) {
+            var active = preset.key === indexState.range ? " is-active" : "";
+            return '<button type="button" class="tab' + active + '" data-range="' +
+                preset.key + '" role="tab">' + preset.label + "</button>";
+        }).join("");
+    }
+
+    /* 日期輸入框顯示目前區間，並限制在有資料的範圍內 */
+    function syncIndexInputs(bounds, rows) {
+        var fromInput = document.getElementById("indexFrom");
+        var toInput = document.getElementById("indexTo");
+        var min = formatDate(rows[0].date);
+        var max = formatDate(rows[rows.length - 1].date);
+        fromInput.value = formatDate(bounds.from);
+        toInput.value = formatDate(bounds.to);
+        fromInput.min = min;
+        toInput.min = min;
+        fromInput.max = max;
+        toInput.max = max;
+    }
+
+    function renderIndexView() {
+        var payload = indexState.data;
+        var note = document.getElementById("indexCandleNote");
+        var dateNote = document.getElementById("indexDataDate");
+        if (!payload) {
+            return;
+        }
+
+        var rows = indexRows(payload);
+        if (!rows.length) {
+            dateNote.textContent = "尚無資料";
+            note.textContent = "尚無指數資料，請先執行 python scripts/ingest_index.py 120";
+            fillTable("indexTable", [], null, 8);
+            return;
+        }
+
+        var period = indexState.period;
+        var bars = withChange(aggregateIndex(rows, period));
+        var bounds = rangeBounds(rows);
+        var zoom = visibleRange(bars, bounds);
+        var latest = bars[zoom.end];
+
+        buildIndexRangeTabs();
+        syncIndexInputs(bounds, rows);
+
+        document.getElementById("indexCandleTitle").textContent =
+            payload.name + PERIOD_LABELS[period];
+        dateNote.textContent = formatDate(latest.date) + "　收盤 " + latest.close.toFixed(2) +
+            "　" + signed(latest.diff) + "（" + signed(latest.pct) + "%）";
+        note.textContent = "顯示 " + formatDate(bars[zoom.start].start_date) + " ~ " +
+            formatDate(latest.date) + "，共 " + (zoom.end - zoom.start + 1) + " 根" +
+            PERIOD_LABELS[period] + " K 棒（資料自 " + formatDate(rows[0].date) +
+            " 起，可拖曳下方滑桿或以滾輪縮放）；均線為 " +
+            PERIOD_MA[period].map(function (size) {
+                return "MA" + size;
+            }).join("、");
+
+        renderIndexCandle(bars, period, zoom);
+        var listed = renderIndexTable(bars, zoom);
+        document.getElementById("indexTableNote").textContent =
+            "區間內最後 " + listed + " 根" + PERIOD_LABELS[period] +
+            " K 棒，漲跌以前一根收盤價計算";
+    }
+
+    function loadIndexView() {
+        var dateNote = document.getElementById("indexDataDate");
+        loadIndexData().then(function (payload) {
+            indexState.data = payload;
+            indexState.loaded = true;
+            renderIndexView();
+        }).catch(function (error) {
+            dateNote.textContent = "載入失敗：" + error.message;
+            console.error(error);
+        });
+    }
+
+    function bindIndexControls() {
+        buildIndexRangeTabs();
+
+        document.getElementById("indexPeriodTabs").addEventListener("click", function (event) {
+            var button = event.target.closest(".tab");
+            if (!button) {
+                return;
+            }
+            Array.prototype.forEach.call(this.querySelectorAll(".tab"), function (tab) {
+                tab.classList.toggle("is-active", tab === button);
+            });
+            indexState.period = button.dataset.period;
+            // 自訂區間是使用者明確指定的，切換週期時保留；
+            // 否則套用該週期的預設區間，避免月線只剩幾根 K 棒
+            if (indexState.range !== "custom") {
+                indexState.range = DEFAULT_RANGE[indexState.period];
+            }
+            renderIndexView();
+        });
+
+        document.getElementById("indexRangeTabs").addEventListener("click", function (event) {
+            var button = event.target.closest(".tab");
+            if (!button) {
+                return;
+            }
+            indexState.range = button.dataset.range;
+            indexState.from = null;
+            indexState.to = null;
+            renderIndexView();
+        });
+
+        ["indexFrom", "indexTo"].forEach(function (id) {
+            document.getElementById(id).addEventListener("change", function () {
+                var from = document.getElementById("indexFrom").value.replace(/-/g, "");
+                var to = document.getElementById("indexTo").value.replace(/-/g, "");
+                if (!from || !to) {
+                    return;
+                }
+                indexState.range = "custom";
+                indexState.from = from;
+                indexState.to = to;
+                renderIndexView();
+            });
+        });
+    }
+
     /* ===== 頁籤切換 ===== */
 
     var currentView = "industry";
@@ -1410,7 +1934,13 @@
         window.scrollTo(0, 0);
         highlightSubNav();
 
-        if (name === "etf") {
+        if (name === "index") {
+            if (!indexState.loaded) {
+                loadIndexView();
+            } else {
+                ensureIndexChart().resize();
+            }
+        } else if (name === "etf") {
             if (!etfState.loaded) {
                 loadEtfView();
             } else {
@@ -1509,6 +2039,7 @@
     function init() {
         bindControls();
         bindEtfControls();
+        bindIndexControls();
         buildSubNav();
         bindNav();
         highlightSubNav();
