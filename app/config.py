@@ -24,6 +24,12 @@ INDEX_NAMES = {INDEX_TAIEX: "發行量加權股價指數"}
 TPEX_INST_URL = "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade"
 TPEX_QUOTE_URL = "https://www.tpex.org.tw/www/zh-tw/afterTrading/otc"
 
+# 盤中觀察的總開關。預設關閉：MIS 是給看盤網頁用的內部介面，
+# 不在證交所 OpenAPI 平台上，也沒有公布任何頻率規則，
+# 實測連續掃描會讓整個 mis.twse.com.tw 對該 IP 停止回應達數十分鐘。
+# 開啟後每三分鐘會對 MIS 送出 24 個請求，風險自負。
+INTRADAY_ENABLED = False
+
 # 盤中即時報價 (證交所 MIS)
 # 這支端點沒有 CORS 標頭，瀏覽器無法直接呼叫，只能由後端代為抓取
 MIS_QUOTE_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"

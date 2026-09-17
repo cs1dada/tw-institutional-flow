@@ -45,6 +45,8 @@ def export_page():
     html = (config.STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = html.replace("{{v}}", asset_version())
     html = html.replace("{{mode}}", "static")
+    # 靜態站沒有後端可代抓 MIS，這一頁一律關閉
+    html = html.replace("{{intraday}}", "off")
     # GitHub Pages 的網址含 repo 名稱，絕對路徑會少一層而失效
     html = html.replace('href="/static/', 'href="')
     html = html.replace('src="/static/', 'src="')

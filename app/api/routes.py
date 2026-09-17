@@ -409,7 +409,11 @@ def api_intraday(force: bool = Query(False)):
 
     只在本機模式提供：MIS 端點沒有 CORS 標頭，瀏覽器無法直接呼叫，
     必須由後端代為抓取，因此靜態站沒有這一頁。
+
+    預設為關閉 (config.INTRADAY_ENABLED)，關閉時不會對 MIS 送出任何請求。
     """
+    if not config.INTRADAY_ENABLED:
+        raise HTTPException(status_code=404, detail="盤中觀察目前為關閉狀態")
     conn = connect()
     try:
         return intraday.build_intraday(conn, force=force)

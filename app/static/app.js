@@ -2392,8 +2392,9 @@
         bindControls();
         bindEtfControls();
         bindIndexControls();
-        // 盤中資料需要後端代抓 MIS (該端點沒有 CORS 標頭)，靜態站沒有這一頁
-        if (MODE === "api") {
+        // 盤中資料需要後端代抓 MIS (該端點沒有 CORS 標頭)，靜態站沒有這一頁；
+        // 另外後端可用 INTRADAY_ENABLED 關閉這項功能，關閉時連入口都不顯示
+        if (MODE === "api" && window.APP_INTRADAY === "on") {
             bindIntradayControls();
         } else {
             Array.prototype.forEach.call(
