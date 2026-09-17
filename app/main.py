@@ -2,10 +2,15 @@
 
 啟動方式：
     python -m uvicorn app.main:app --reload --port 8000
+
+前端是獨立的 Vue 專案 (frontend/)，有兩種用法：
+
+- 開發前端：另外跑 `npm run dev`，Vite 會把 /api 轉發到這裡
+- 只看網站：先 `npm run build`，本服務即可直接提供 dist/ 的頁面
 """
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -13,6 +18,8 @@ from app import config
 from app.api.etf_routes import router as etf_router
 from app.api.routes import router
 from app.db import init_schema
+
+DIST_DIR = config.BASE_DIR / "dist"
 
 
 @asynccontextmanager
@@ -27,28 +34,34 @@ app.include_router(etf_router)
 
 
 @app.middleware("http")
-async def no_cache_static(request, call_next):
-    """靜態檔不快取，避免修改前端後瀏覽器仍載入舊版。"""
+async def no_cache_page(request, call_next):
+    """頁面不快取，避免重新建置後瀏覽器仍載入舊版。"""
     response = await call_next(request)
-    if request.url.path == "/" or request.url.path.startswith("/static/"):
+    if request.url.path == "/":
         response.headers["Cache-Control"] = "no-store, must-revalidate"
     return response
 
 
-def asset_version():
-    """以前端檔案的更新時間作為版本，避免瀏覽器沿用舊的快取。"""
-    files = [config.STATIC_DIR / "style.css", config.STATIC_DIR / "app.js"]
-    return str(int(max(path.stat().st_mtime for path in files)))
-
-
 @app.get("/")
 def index():
-    html = (config.STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    html = html.replace("{{v}}", asset_version())
-    # 本機由 FastAPI 提供頁面，前端走 API；靜態版由匯出腳本寫死為 static
-    html = html.replace("{{mode}}", "api")
-    html = html.replace("{{intraday}}", "on" if config.INTRADAY_ENABLED else "off")
+    page = DIST_DIR / "index.html"
+    if not page.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="尚未建置前端，請先在 frontend 目錄執行 npm install && npm run build",
+        )
+    html = page.read_text(encoding="utf-8")
+    # 建置產物預設是靜態模式 (讀 docs/data 的 JSON)，
+    # 由本服務提供時改走 /api，資料才會是資料庫的即時內容
+    html = html.replace('window.APP_MODE = "static"', 'window.APP_MODE = "api"')
+    html = html.replace(
+        'window.APP_INTRADAY = "off"',
+        f'window.APP_INTRADAY = "{"on" if config.INTRADAY_ENABLED else "off"}"',
+    )
     return HTMLResponse(html)
 
 
-app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
+# 建置產物內的資源以相對路徑引用，因此掛在根目錄下
+if DIST_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
+    app.mount("/", StaticFiles(directory=DIST_DIR), name="dist")

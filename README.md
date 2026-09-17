@@ -51,11 +51,37 @@ python scripts/ingest_index.py 202101 202609     # 指定起訖年月
 
 ### 啟動網站
 
+前端是獨立的 Vue 3 專案，位於 `frontend/`，第一次使用需要先建置：
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+之後啟動後端即可，它會直接提供建置好的頁面：
+
 ```bash
 python -m uvicorn app.main:app --port 8000
 ```
 
 瀏覽器開啟 <http://127.0.0.1:8000>。API 文件位於 <http://127.0.0.1:8000/docs>。
+
+要改前端程式碼時改用開發模式，存檔即時生效：
+
+```bash
+python -m uvicorn app.main:app --port 8000   # 終端機 1：API
+cd frontend && npm run dev                    # 終端機 2：前端
+```
+
+開發模式的網址是 <http://localhost:5173>，Vite 會把 `/api` 轉發到 8000。
+細節見 [frontend/README.md](frontend/README.md)。
+
+### 安裝到手機
+
+線上版是 PWA，用手機瀏覽器開啟後選「加到主畫面」即可安裝。
+Android 的 Chrome 會實際產生一個 APK，安裝後有自己的圖示、全螢幕、
+並且看過的資料會留在裝置上，沒有網路也能開啟。
 
 ### 盤中觀察（預設關閉）
 
@@ -105,9 +131,20 @@ python scripts/export_static.py        # 預設匯出最近 60 個交易日
 python scripts/export_static.py 30     # 只匯出最近 30 個交易日
 ```
 
-把資料庫查詢結果預先算好存成 JSON 輸出到 `docs/`，供 GitHub Pages 託管。
+把資料庫查詢結果預先算好存成 JSON 輸出到 `docs/data/`，供 GitHub Pages 託管。
 推送後會反映在 <https://cs1dada.github.io/tw-institutional-flow/>。
 資料庫仍是唯一來源，本機使用不受影響。
+
+網站本身的 HTML 與 JS 不由這個腳本產生，而是前端的建置產物。
+改動前端後要另外執行：
+
+```bash
+cd frontend && npm run build     # 產生 dist/
+python scripts/deploy_web.py     # 複製 dist/ 到 docs/，保留 docs/data/
+```
+
+這樣切分的原因：GitHub Actions 的每日更新只需要更新資料，
+不必在 CI 上安裝 Node.js。
 
 本機可用以下方式模擬 GitHub Pages 環境驗證：
 

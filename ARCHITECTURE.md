@@ -11,6 +11,23 @@
 
 ---
 
+## 〇、前端與資料的分工
+
+網站由兩個獨立的部分組成，更新頻率完全不同：
+
+```
+frontend/  --npm run build-->  dist/  --deploy_web.py-->  docs/       「殼」
+                                                                      改前端時才更新
+
+data/stock.db  ------------export_static.py------------>  docs/data/  「資料」
+                                                                      每個交易日更新
+```
+
+GitHub Actions 的每日排程只跑 `export_static.py`，因此 CI 上不需要
+安裝 Node.js，也不會動到殼。這是兩者分開的主要理由。
+
+---
+
 ## 一、為什麼需要靜態模式
 
 GitHub Pages 是**只會送檔案、不會執行程式**的伺服器。它不能跑 Python、不能查資料庫，
@@ -162,17 +179,20 @@ docs/data/day/20260910.json
 app/fetchers/intraday.py     盤中即時報價抓取（MIS），只有本機模式會用到
 app/services/intraday.py     盤中類股聚合與記憶體快取
 
-app/static/index.html        原始檔，保留 {{v}} 與 {{mode}} 佔位符（本機用）
-           app.js            雙模式：依 mode 決定讀 API 或 JSON
-           style.css
-           vendor/echarts.min.js
+frontend/                    前端（Vue 3 + TypeScript + Vite）
+  src/api/dataSource.ts      雙模式：依 mode 決定讀 API 或 JSON
+  src/views/                 四個功能頁各一個元件
+  src/utils/                 計算邏輯，純函式不依賴 DOM
+  public/pwa-*.png           PWA 圖示
 
-docs/                        匯出產生，GitHub Pages 的根目錄
+dist/                        npm run build 的產物，不納入版控
+
+docs/                        GitHub Pages 的根目錄
   .nojekyll                  空檔案，關閉 GitHub 的 Jekyll 處理
-  index.html                 由原始檔轉換而來
-  app.js                     複製
-  style.css                  複製
-  vendor/echarts.min.js      複製
+  index.html                 ┐
+  assets/                    │ 由 deploy_web.py 從 dist/ 複製
+  sw.js                      │ 只在改動前端時才需要更新
+  manifest.webmanifest       ┘
   data/
     meta.json                日期清單、已介接的 ETF（約 2 KB）
     day/20260910.json        每個交易日一檔（約 185 KB）
