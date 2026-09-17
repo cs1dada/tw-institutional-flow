@@ -12,3 +12,6 @@ __pycache__/
 frontend/node_modules/
 # Vite 的建置產物，正式部署仍以 docs/ 為準，切換部署前不納入版控
 dist/
+
+# Vite 的本機快取
+frontend/.vite/
