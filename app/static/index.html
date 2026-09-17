@@ -28,6 +28,13 @@
         </button>
         <div class="sub-nav" data-sub="etf" hidden></div>
     </div>
+    <div class="nav-group" data-mode="api">
+        <button type="button" class="nav-item" data-view="intraday">
+            <span class="nav-label">盤中觀察</span>
+            <span class="nav-desc">類股即時強弱</span>
+        </button>
+        <div class="sub-nav" data-sub="intraday" hidden></div>
+    </div>
     <div class="nav-group">
         <button type="button" class="nav-item" data-view="index">
             <span class="nav-label">大盤指數</span>
@@ -323,6 +330,94 @@
         <table class="data-table" id="indexTable">
             <thead>
                 <tr><th>期間</th><th class="num">開盤</th><th class="num">最高</th><th class="num">最低</th><th class="num">收盤</th><th class="num">漲跌</th><th class="num">漲跌幅</th><th class="num">成交金額（億）</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</section>
+
+</section>
+
+<!-- 盤中觀察 -->
+<section class="view" id="view-intraday" hidden>
+
+<header class="page-head">
+    <div>
+        <h1>盤中類股強弱</h1>
+        <p class="subtitle">
+            開盤至今的成交金額與加權漲跌幅，約每分鐘更新一次
+        </p>
+    </div>
+    <div class="head-meta">
+        <span id="intradayStatus" class="data-date">載入中</span>
+    </div>
+</header>
+
+<div class="controls">
+    <div class="control">
+        <span class="control-label">更新</span>
+        <div class="tabs" id="intradayAutoTabs" role="tablist">
+            <button type="button" class="tab is-active" data-auto="on" role="tab">自動</button>
+            <button type="button" class="tab" data-auto="off" role="tab">暫停</button>
+        </div>
+    </div>
+
+    <div class="control">
+        <span class="control-label">範圍</span>
+        <div class="tabs" id="intradayScopeTabs" role="tablist">
+            <button type="button" class="tab is-active" data-etf="off" role="tab">不含 ETF</button>
+            <button type="button" class="tab" data-etf="on" role="tab">含 ETF</button>
+        </div>
+    </div>
+
+    <div class="control control-inline">
+        <button type="button" class="chip" id="intradayRefresh">立即更新</button>
+    </div>
+</div>
+
+<p class="notice" id="intradayNotice">
+    盤中沒有任何官方即時法人買賣超資料，三大法人進出要收盤後才公布。本頁改以實際成交統計呈現：
+    區塊面積為該類股開盤至今的成交金額，顏色為以成交金額加權的漲跌幅。
+    成交金額以現價乘上累積成交量估算，與真實成交值有誤差，用於比較類股之間的相對規模。
+</p>
+
+<section class="panel" id="panel-intraday-index" data-nav="即時指數">
+    <div class="panel-head">
+        <h2>即時指數</h2>
+        <p class="panel-note" id="intradayIndexNote">載入中</p>
+    </div>
+    <div class="quote-grid" id="intradayIndexes"></div>
+</section>
+
+<section class="panel" id="panel-intraday-map" data-nav="類股資金分布">
+    <div class="panel-head">
+        <h2>類股資金分布</h2>
+        <p class="panel-note" id="intradayMapNote">
+            面積為成交金額，顏色為成交金額加權的漲跌幅
+        </p>
+    </div>
+    <div id="intradayTreemap" class="chart chart-tall"></div>
+</section>
+
+<section class="panel" id="panel-intraday-strength" data-nav="類股強弱">
+    <div class="panel-head">
+        <h2>類股強弱</h2>
+        <p class="panel-note" id="intradayStrengthNote">
+            依成交金額取前 20 個類股，長度為加權漲跌幅
+        </p>
+    </div>
+    <div id="intradayStrength" class="chart"></div>
+</section>
+
+<section class="panel" id="panel-intraday-stocks" data-nav="成交金額排行">
+    <div class="panel-head">
+        <h2>成交金額排行</h2>
+        <p class="panel-note" id="intradayStockNote">開盤至今成交金額最大的 30 檔</p>
+    </div>
+    <div class="table-wrap">
+        <table class="data-table" id="intradayStockTable">
+            <thead>
+                <tr><th>代號</th><th>名稱</th><th>類股</th><th class="num">成交價</th><th class="num">漲跌幅</th><th class="num">成交金額（億）</th><th class="num">成交量（張）</th></tr>
             </thead>
             <tbody></tbody>
         </table>

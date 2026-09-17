@@ -343,6 +343,9 @@
         if (indexChart) {
             indexChart.resize();
         }
+        Object.keys(intradayCharts).forEach(function (key) {
+            intradayCharts[key].resize();
+        });
         drawTreemapTitles();
     });
 
@@ -1916,6 +1919,339 @@
         });
     }
 
+    /* ===== 盤中觀察 =====
+       與盤後頁不同，這裡沒有法人買賣超可用 (盤中不存在該資料)，
+       改以成交金額表示資金規模、成交金額加權漲跌幅表示方向。
+       MIS 端點沒有 CORS 標頭，必須由後端代抓，因此靜態站沒有這一頁。 */
+
+    // 與後端快取時間一致。掃描一輪要 24 個請求，間隔太短會被證交所暫時封鎖，
+    // 類股強弱也不需要秒級更新
+    var INTRADAY_INTERVAL = 60000;
+    var INTRADAY_TOP_INDUSTRIES = 20;
+    var INTRADAY_TOP_STOCKS = 30;
+    var INTRADAY_PCT_CAP = 3;        // 加權漲跌幅達此值即為最深的顏色
+
+    var intradayState = {
+        data: null,
+        loaded: false,
+        auto: true,
+        includeEtf: false,
+        timer: null,
+        loading: false,
+    };
+
+    var intradayCharts = {};
+
+    function ensureIntradayCharts() {
+        if (!intradayCharts.treemap) {
+            intradayCharts.treemap = echarts.init(document.getElementById("intradayTreemap"));
+            intradayCharts.strength = echarts.init(document.getElementById("intradayStrength"));
+        }
+        return intradayCharts;
+    }
+
+    function parseHex(hex) {
+        var text = String(hex).trim().replace("#", "");
+        if (text.length === 3) {
+            text = text[0] + text[0] + text[1] + text[1] + text[2] + text[2];
+        }
+        var value = parseInt(text, 16);
+        return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+    }
+
+    function mixColor(from, to, ratio) {
+        var a = parseHex(from);
+        var b = parseHex(to);
+        var parts = a.map(function (channel, index) {
+            return Math.round(channel + (b[index] - channel) * ratio);
+        });
+        return "rgb(" + parts.join(",") + ")";
+    }
+
+    /* 漲跌幅轉顏色：以 INTRADAY_PCT_CAP 為上限線性內插到平盤底色。
+       買賣兩色沿用全站設定，CVD 模式下自然跟著切換。 */
+    function intradayColor(pct) {
+        var ratio = Math.min(Math.abs(pct) / INTRADAY_PCT_CAP, 1);
+        return mixColor(COLORS.neutral, pct >= 0 ? buyColor() : sellColor(), ratio);
+    }
+
+    function intradayIndustries() {
+        return (intradayState.data.industries || []).filter(function (row) {
+            return row.amount > 0 && (intradayState.includeEtf || row.industry !== ETF_GROUP);
+        });
+    }
+
+    function intradayStocks() {
+        var fields = intradayState.data.stock_fields;
+        return (intradayState.data.stocks || []).map(function (row) {
+            var item = {};
+            fields.forEach(function (name, index) {
+                item[name] = row[index];
+            });
+            return item;
+        }).filter(function (item) {
+            return intradayState.includeEtf || item.industry !== ETF_GROUP;
+        });
+    }
+
+    function renderIntradayIndexes(payload) {
+        var box = document.getElementById("intradayIndexes");
+        if (!payload.indexes || !payload.indexes.length) {
+            box.innerHTML = '<p class="quote-meta">目前沒有指數報價</p>';
+        } else {
+            box.innerHTML = payload.indexes.map(function (row) {
+                var color = row.pct >= 0 ? buyColor() : sellColor();
+                return '<div class="quote-card">' +
+                    '<div class="quote-name">' + row.name + '</div>' +
+                    '<div class="quote-value" style="color:' + color + '">' +
+                    row.value.toFixed(2) + '</div>' +
+                    '<div class="quote-change" style="color:' + color + '">' +
+                    signed(row.diff, 2) + '（' + signed(row.pct, 2) + '%）</div>' +
+                    '<div class="quote-meta">成交 ' + (row.amount / YI).toFixed(0) +
+                    ' 億　' + (row.volume / 10000).toFixed(0) + ' 萬張　' +
+                    (row.time || '--') + '</div></div>';
+            }).join("");
+        }
+        document.getElementById("intradayIndexNote").textContent =
+            "報價時間 " + (payload.quote_time || "--");
+    }
+
+    function renderIntradayTreemap(rows) {
+        var chart = ensureIntradayCharts().treemap;
+        var data = rows.map(function (row) {
+            return {
+                name: row.industry,
+                value: row.amount,
+                detail: row,
+                itemStyle: {
+                    color: intradayColor(row.weighted_pct),
+                    borderColor: "rgba(255, 255, 255, 0.7)",
+                    borderWidth: 2,
+                    gapWidth: 2,
+                },
+            };
+        });
+
+        chart.dispatchAction({ type: "hideTip" });
+        chart.setOption({
+            tooltip: Object.assign({}, baseTooltip, {
+                formatter: function (info) {
+                    var row = info.data && info.data.detail;
+                    if (!row) {
+                        return "";
+                    }
+                    var upShare = row.amount ? (row.up_amount / row.amount * 100).toFixed(0) : "0";
+                    return "<strong>" + row.industry + "</strong><br>成交金額 " +
+                        (row.amount / YI).toFixed(1) + " 億<br>加權漲跌 " +
+                        signed(row.weighted_pct, 2) + "%<br>漲 " + row.up_count +
+                        "　跌 " + row.down_count + "　平 " + row.flat_count +
+                        "<br>成交集中於上漲檔 " + upShare + "%";
+                },
+            }),
+            series: [{
+                type: "treemap",
+                data: data,
+                sort: null,
+                roam: false,
+                nodeClick: false,
+                breadcrumb: { show: false },
+                width: "100%",
+                height: "100%",
+                label: {
+                    show: true,
+                    overflow: "truncate",
+                    formatter: function (info) {
+                        return "{name|" + info.name + "}\n{value|" +
+                            signed(info.data.detail.weighted_pct, 2) + "%}";
+                    },
+                    rich: {
+                        name: { fontSize: 13, fontWeight: 600, color: COLORS.text, lineHeight: 18 },
+                        value: { fontSize: 12, color: COLORS.secondary, lineHeight: 16 },
+                    },
+                },
+            }],
+        }, true);
+    }
+
+    function renderIntradayStrength(rows) {
+        var chart = ensureIntradayCharts().strength;
+        // ECharts 的類目軸由下往上排，先由弱到強排序，畫出來才是由上而下由強到弱
+        var ordered = rows.slice(0, INTRADAY_TOP_INDUSTRIES).sort(function (a, b) {
+            return a.weighted_pct - b.weighted_pct;
+        });
+
+        chart.setOption({
+            grid: { left: 110, right: 70, top: 10, bottom: 30 },
+            tooltip: Object.assign({}, baseTooltip, {
+                trigger: "axis",
+                axisPointer: { type: "shadow" },
+                formatter: function (params) {
+                    var row = params[0].data.detail;
+                    return "<strong>" + row.industry + "</strong><br>加權漲跌 " +
+                        signed(row.weighted_pct, 2) + "%<br>成交金額 " +
+                        (row.amount / YI).toFixed(1) + " 億";
+                },
+            }),
+            xAxis: {
+                type: "value",
+                axisLabel: { formatter: "{value}%", color: COLORS.secondary },
+                splitLine: { lineStyle: { color: COLORS.border } },
+            },
+            yAxis: {
+                type: "category",
+                data: ordered.map(function (row) {
+                    return row.industry;
+                }),
+                axisLabel: { color: COLORS.secondary },
+                axisLine: { lineStyle: { color: COLORS.border } },
+            },
+            series: [{
+                type: "bar",
+                data: ordered.map(function (row) {
+                    return {
+                        value: row.weighted_pct,
+                        detail: row,
+                        itemStyle: { color: polarityColor(row.weighted_pct) },
+                    };
+                }),
+                label: {
+                    show: true,
+                    position: "right",
+                    color: COLORS.secondary,
+                    fontSize: 12,
+                    formatter: function (params) {
+                        return signed(params.value, 2) + "%";
+                    },
+                },
+            }],
+        }, true);
+    }
+
+    function renderIntradayStocks(stocks) {
+        fillTable("intradayStockTable", stocks.slice(0, INTRADAY_TOP_STOCKS), function (row) {
+            var cls = row.pct >= 0 ? "val-buy" : "val-sell";
+            return "<tr><td>" + row.code + "</td><td>" + row.name + "</td>" +
+                "<td>" + row.industry + "</td>" +
+                '<td class="num">' + row.price.toFixed(2) + "</td>" +
+                '<td class="num ' + cls + '">' + signed(row.pct, 2) + "%</td>" +
+                '<td class="num">' + (row.amount / YI).toFixed(1) + "</td>" +
+                '<td class="num">' + row.volume.toLocaleString() + "</td></tr>";
+        }, 7);
+    }
+
+    function renderIntradayView() {
+        var payload = intradayState.data;
+        if (!payload) {
+            return;
+        }
+        var rows = intradayIndustries();
+        var stocks = intradayStocks();
+
+        renderIntradayIndexes(payload);
+        renderIntradayTreemap(rows);
+        renderIntradayStrength(rows);
+        renderIntradayStocks(stocks);
+
+        var total = rows.reduce(function (sum, row) {
+            return sum + row.amount;
+        }, 0);
+        document.getElementById("intradayMapNote").textContent =
+            "面積為成交金額，顏色為成交金額加權的漲跌幅（±" + INTRADAY_PCT_CAP +
+            "% 以上為最深色）；合計 " + (total / YI).toFixed(0) + " 億，共 " +
+            rows.length + " 個類股";
+        document.getElementById("intradayStockNote").textContent =
+            "開盤至今成交金額最大的 " + Math.min(stocks.length, INTRADAY_TOP_STOCKS) +
+            " 檔，全市場共 " + stocks.length + " 檔有成交";
+
+        // 證交所在請求過密時會斷線，此時沿用上一份資料並明確標示，
+        // 以免使用者把過時的數字當成當下的行情
+        document.getElementById("intradayStatus").textContent =
+            formatDate(payload.date) + "　" + (payload.trading ? "盤中" : "非交易時段") +
+            "　更新於 " + payload.updated_at + (payload.stale ? "（來源忙碌，暫時沿用前一筆）" : "");
+    }
+
+    function loadIntradayView(force) {
+        if (intradayState.loading) {
+            return;
+        }
+        intradayState.loading = true;
+        var view = document.getElementById("view-intraday");
+        view.classList.add("is-refreshing");
+
+        fetchJson("/api/intraday" + (force ? "?force=true" : "")).then(function (payload) {
+            intradayState.data = payload;
+            intradayState.loaded = true;
+            renderIntradayView();
+            // 收盤後資料不會再變，自動更新沒有意義
+            if (!payload.trading) {
+                stopIntradayTimer();
+            }
+        }).catch(function (error) {
+            document.getElementById("intradayStatus").textContent = "載入失敗：" + error.message;
+            console.error(error);
+        }).then(function () {
+            intradayState.loading = false;
+            view.classList.remove("is-refreshing");
+        });
+    }
+
+    function startIntradayTimer() {
+        stopIntradayTimer();
+        if (!intradayState.auto) {
+            return;
+        }
+        intradayState.timer = setInterval(function () {
+            // 切到其他頁時不必繼續打 API
+            if (currentView === "intraday") {
+                loadIntradayView(false);
+            }
+        }, INTRADAY_INTERVAL);
+    }
+
+    function stopIntradayTimer() {
+        if (intradayState.timer) {
+            clearInterval(intradayState.timer);
+            intradayState.timer = null;
+        }
+    }
+
+    function bindIntradayControls() {
+        function activate(container, button) {
+            Array.prototype.forEach.call(container.querySelectorAll(".tab"), function (tab) {
+                tab.classList.toggle("is-active", tab === button);
+            });
+        }
+
+        document.getElementById("intradayAutoTabs").addEventListener("click", function (event) {
+            var button = event.target.closest(".tab");
+            if (!button) {
+                return;
+            }
+            activate(this, button);
+            intradayState.auto = button.dataset.auto === "on";
+            if (intradayState.auto) {
+                loadIntradayView(false);
+                startIntradayTimer();
+            } else {
+                stopIntradayTimer();
+            }
+        });
+
+        document.getElementById("intradayScopeTabs").addEventListener("click", function (event) {
+            var button = event.target.closest(".tab");
+            if (!button) {
+                return;
+            }
+            activate(this, button);
+            intradayState.includeEtf = button.dataset.etf === "on";
+            renderIntradayView();
+        });
+
+        document.getElementById("intradayRefresh").addEventListener("click", function () {
+            loadIntradayView(true);
+        });
+    }
+
     /* ===== 頁籤切換 ===== */
 
     var currentView = "industry";
@@ -1934,7 +2270,23 @@
         window.scrollTo(0, 0);
         highlightSubNav();
 
-        if (name === "index") {
+        if (name !== "intraday") {
+            stopIntradayTimer();
+        }
+
+        if (name === "intraday") {
+            if (!intradayState.loaded) {
+                loadIntradayView(false);
+            } else {
+                ensureIntradayCharts();
+                Object.keys(intradayCharts).forEach(function (key) {
+                    intradayCharts[key].resize();
+                });
+                // 離開期間資料已經過時，切回來時立刻補一次
+                loadIntradayView(false);
+            }
+            startIntradayTimer();
+        } else if (name === "index") {
             if (!indexState.loaded) {
                 loadIndexView();
             } else {
@@ -2040,6 +2392,17 @@
         bindControls();
         bindEtfControls();
         bindIndexControls();
+        // 盤中資料需要後端代抓 MIS (該端點沒有 CORS 標頭)，靜態站沒有這一頁
+        if (MODE === "api") {
+            bindIntradayControls();
+        } else {
+            Array.prototype.forEach.call(
+                document.querySelectorAll('[data-mode="api"]'),
+                function (node) {
+                    node.hidden = true;
+                }
+            );
+        }
         buildSubNav();
         bindNav();
         highlightSubNav();

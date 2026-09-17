@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app import config
 from app.db import connect
-from app.services import dataset
+from app.services import dataset, intraday
 
 router = APIRouter(prefix="/api")
 
@@ -399,6 +399,20 @@ def api_index_data():
     conn = connect()
     try:
         return dataset.build_index(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/intraday")
+def api_intraday(force: bool = Query(False)):
+    """盤中類股強弱。
+
+    只在本機模式提供：MIS 端點沒有 CORS 標頭，瀏覽器無法直接呼叫，
+    必須由後端代為抓取，因此靜態站沒有這一頁。
+    """
+    conn = connect()
+    try:
+        return intraday.build_intraday(conn, force=force)
     finally:
         conn.close()
 

@@ -24,6 +24,26 @@ INDEX_NAMES = {INDEX_TAIEX: "發行量加權股價指數"}
 TPEX_INST_URL = "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade"
 TPEX_QUOTE_URL = "https://www.tpex.org.tw/www/zh-tw/afterTrading/otc"
 
+# 盤中即時報價 (證交所 MIS)
+# 這支端點沒有 CORS 標頭，瀏覽器無法直接呼叫，只能由後端代為抓取
+MIS_QUOTE_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
+MIS_REFERER = "https://mis.twse.com.tw/stock/fibest.jsp"
+# 單次請求的檔數。實測 120 檔可過、150 檔會被拒，取 100 保留餘裕
+MIS_BATCH_SIZE = 100
+# 同時進行的批次數。全市場約 24 批，序列抓取要近 30 秒。
+# 併發拉到 6 時 MIS 會以 RemoteDisconnected 斷線，3 條較為穩定
+MIS_CONCURRENCY = 3
+# 掃描一輪要 24 個請求，MIS 原本是給看盤頁查少數幾檔用的，
+# 短間隔連續掃描會被暫時封鎖 (整個來源斷線數分鐘)。
+# 類股強弱本來就不需要秒級更新，一分鐘一輪已足夠，也把請求量壓到可接受的程度
+INTRADAY_CACHE_SECONDS = 60
+# 被來源拒絕後的退避秒數，連續失敗會逐次加倍，最多到上限值
+INTRADAY_BACKOFF_SECONDS = 60
+INTRADAY_BACKOFF_MAX = 600
+# 盤中時段 (含試撮與收盤後的零股撮合緩衝)，超出此範圍不再向外抓取
+INTRADAY_OPEN = "08:30"
+INTRADAY_CLOSE = "14:00"
+
 # 個股產業別對照 (ISIN 對照表，內含中文產業名稱)
 ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp"
 ISIN_MODE = {MARKET_TWSE: "2", MARKET_TPEX: "4"}

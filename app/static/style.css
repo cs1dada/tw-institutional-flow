@@ -443,6 +443,50 @@ h2 {
     font-weight: 600;
 }
 
+/* 盤中即時指數卡片 */
+.quote-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+}
+
+.quote-card {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-0);
+}
+
+.quote-name {
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.quote-value {
+    margin-top: 4px;
+    font-size: 24px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.quote-change {
+    margin-top: 2px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.quote-meta {
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+/* 資料正在更新時整頁淡出，讓使用者知道畫面即將換新 */
+.is-refreshing {
+    opacity: 0.55;
+    transition: opacity 0.2s;
+}
+
 .notice {
     padding: 10px 12px;
     border: 1px solid var(--border);
