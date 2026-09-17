@@ -4,6 +4,7 @@
  * 顏色的唯一來源是 style.css 的 CSS 變數，這裡只負責讀出來給 ECharts 用
  * (ECharts 的設定物件吃不到 CSS 變數)。沿用舊版 app.js 的作法。
  */
+import { ref, watchEffect } from "vue"
 
 let cached: Record<string, string> | null = null
 
@@ -30,26 +31,43 @@ export function colors(): Record<ColorName, string> {
     if (!cached) {
         const root = document.querySelector(".viz-root") ?? document.documentElement
         const style = getComputedStyle(root)
-        cached = {} as Record<string, string>
+        const values: Record<string, string> = {}
         for (const [name, token] of Object.entries(TOKENS)) {
-            cached[name] = style.getPropertyValue(token).trim()
+            values[name] = style.getPropertyValue(token).trim()
         }
+        cached = values
     }
     return cached as Record<ColorName, string>
 }
 
-/** 台股慣例：紅漲綠跌 */
+/**
+ * 色盲友善模式。紅綠對比對部分使用者不易分辨，改用紅藍。
+ * 這是跨頁面的全域設定，因此放在模組層級。
+ */
+export const cvdMode = ref(false)
+
+/** 台股慣例：紅漲綠跌；色盲模式下賣方改為藍色 */
 export function buyColor(): string {
-    return colors().buy
+    return cvdMode.value ? colors().buyCvd : colors().buy
 }
 
 export function sellColor(): string {
-    return colors().sell
+    return cvdMode.value ? colors().sellCvd : colors().sell
 }
 
 export function polarityColor(value: number): string {
     return value >= 0 ? buyColor() : sellColor()
 }
+
+/** 同步覆寫 CSS 變數，讓圖例色塊與表格數字的顏色跟著切換 */
+watchEffect(() => {
+    const root = document.querySelector<HTMLElement>(".viz-root")
+    if (!root) {
+        return
+    }
+    root.style.setProperty("--buy", buyColor())
+    root.style.setProperty("--sell", sellColor())
+})
 
 /** ECharts 的 tooltip 共用樣式 */
 export function baseTooltip() {

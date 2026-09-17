@@ -7,7 +7,7 @@
  *
  * 這一層是舊版 app.js「資料層」區塊的等價物，差別只在於改用模組匯出。
  */
-import type { DayData, IndexPayload, Meta } from "@/types"
+import type { DayData, EtfData, HistoryData, IndexPayload, Meta } from "@/types"
 
 const MODE: "api" | "static" = window.APP_MODE === "static" ? "static" : "api"
 
@@ -62,10 +62,14 @@ async function fetchJson<T>(url: string): Promise<T> {
 const cache: {
     meta: Meta | null
     days: Map<string, DayData>
+    history: HistoryData | null
+    etf: EtfData | null
     index: IndexPayload | null
 } = {
     meta: null,
     days: new Map(),
+    history: null,
+    etf: null,
     index: null,
 }
 
@@ -90,6 +94,30 @@ export async function loadDay(date: string): Promise<DayData> {
     }
     const data = await fetchJson<DayData>(SOURCES[MODE].day(date))
     cache.days.set(date, data)
+    return data
+}
+
+export async function loadHistory(): Promise<HistoryData> {
+    if (cache.history) {
+        return cache.history
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<HistoryData>(SOURCES[MODE].history())
+    cache.history = data
+    return data
+}
+
+export async function loadEtf(): Promise<EtfData> {
+    if (cache.etf) {
+        return cache.etf
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<EtfData>(SOURCES[MODE].etf())
+    cache.etf = data
     return data
 }
 

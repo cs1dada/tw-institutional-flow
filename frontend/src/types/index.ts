@@ -68,6 +68,161 @@ export interface DayData {
     streak_days: number
 }
 
+/** 類股在前端算出 amount (依法人別) 之後的樣子 */
+export interface IndustryFlow extends Industry {
+    /** 依目前法人別取出的金額 */
+    amount: number
+    /** 同方向金額最大的前幾檔個股，最後一項可能是合併的「其他」 */
+    children: FlowChild[]
+}
+
+/** treemap 裡類股區塊內的個股節點 */
+export interface FlowChild {
+    code: string | null
+    name: string
+    market: string | null
+    close: number | null
+    amount: number
+    is_other: boolean
+    /** 合併項涵蓋的檔數 */
+    count?: number
+    /** 所屬類股，下鑽與 tooltip 用 */
+    industry?: string
+    /** 面積被上限截斷 (實際佔比更高) */
+    areaCapped?: boolean
+}
+
+/** 個股加上依法人別取出的金額 */
+export interface StockFlow extends Stock {
+    amount: number
+}
+
+/** 各類股近 N 個交易日的趨勢 */
+export interface HistoryData {
+    dates: string[]
+    industries: Record<string, HistoryPoint[]>
+}
+
+export interface HistoryPoint {
+    date: string
+    total_amt: number
+    foreign_amt: number
+    trust_amt: number
+    dealer_amt: number
+}
+
+/* ===== 盤中觀察 ===== */
+
+export interface IntradayIndex {
+    code: string
+    name: string
+    market: string
+    value: number
+    prev_close: number
+    diff: number
+    pct: number
+    /** 該市場個股加總的成交金額 (元) */
+    amount: number
+    /** 成交張數 */
+    volume: number
+    trades: number
+    time: string
+}
+
+export interface IntradayIndustry {
+    industry: string
+    amount: number
+    up_amount: number
+    down_amount: number
+    up_count: number
+    down_count: number
+    flat_count: number
+    stock_count: number
+    /** 以成交金額加權的漲跌幅 */
+    weighted_pct: number
+}
+
+export interface IntradayStock {
+    code: string
+    name: string
+    market: string
+    industry: string
+    price: number
+    pct: number
+    amount: number
+    volume: number
+}
+
+export interface IntradayData {
+    date: string
+    updated_at: string
+    quote_time: string
+    trading: boolean
+    indexes: IntradayIndex[]
+    industries: IntradayIndustry[]
+    stock_fields: string[]
+    stocks: (string | number)[][]
+    scanned: number
+    quoted: number
+    failed_batches: number
+    elapsed: number
+    cached: boolean
+    age: number
+    /** 來源忙碌時沿用前一份資料 */
+    stale: boolean
+}
+
+/* ===== 主動式 ETF ===== */
+
+export interface EtfSnapshot {
+    date: string
+    etf_code: string
+    etf_name: string | null
+    issuer: string | null
+    nav: number | null
+    aum: number | null
+    units: number | null
+    holding_count: number
+}
+
+export interface EtfHolding {
+    date: string
+    etf_code: string
+    stock_code: string
+    stock_name: string | null
+    shares: number | null
+    weight: number | null
+    close: number | null
+}
+
+export interface EtfTopStock {
+    stock_code: string
+    stock_name: string | null
+    etf_count: number
+    total_shares: number | null
+    market_value: number | null
+    industry: string | null
+}
+
+export interface EtfChange {
+    etf_code: string
+    stock_code: string
+    stock_name: string | null
+    shares: number
+    prev_shares: number
+    share_change: number
+    value_change: number | null
+    change_type: "new" | "removed" | "changed"
+}
+
+export interface EtfData {
+    etfs: EtfSnapshot[]
+    holdings: EtfHolding[]
+    top_stocks: EtfTopStock[]
+    changes: EtfChange[]
+    dates: string[]
+}
+
 /* ===== 大盤指數 ===== */
 
 /** 指數日線，後端以陣列傳輸，fields 說明各欄位順序 */
