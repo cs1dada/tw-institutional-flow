@@ -7,6 +7,8 @@
 | 本機模式 | 日常使用與開發 | FastAPI | 直接查詢 SQLite |
 | 靜態模式 | GitHub Pages 展示 | 無（只送檔案） | 預先匯出的 JSON |
 
+靜態模式的網址為 <https://cs1dada.github.io/tw-institutional-flow/>。
+
 ---
 
 ## 一、為什麼需要靜態模式

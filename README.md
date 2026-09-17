@@ -2,6 +2,8 @@
 
 每日彙整台股上市與上櫃的三大法人買賣超，依產業別聚合，呈現資金流向哪些類股。
 
+線上版：<https://cs1dada.github.io/tw-institutional-flow/>
+
 ![類股資金分布](docs/screenshot-overview.png)
 
 類股區塊的面積是買賣超淨額規模，紅色買超、綠色賣超；區塊內再依同方向個股的
@@ -85,6 +87,7 @@ python scripts/export_static.py 30     # 只匯出最近 30 個交易日
 ```
 
 把資料庫查詢結果預先算好存成 JSON 輸出到 `docs/`，供 GitHub Pages 託管。
+推送後會反映在 <https://cs1dada.github.io/tw-institutional-flow/>。
 資料庫仍是唯一來源，本機使用不受影響。
 
 本機可用以下方式模擬 GitHub Pages 環境驗證：
