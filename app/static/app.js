@@ -1924,9 +1924,9 @@
        改以成交金額表示資金規模、成交金額加權漲跌幅表示方向。
        MIS 端點沒有 CORS 標頭，必須由後端代抓，因此靜態站沒有這一頁。 */
 
-    // 與後端快取時間一致。掃描一輪要 24 個請求，間隔太短會被證交所暫時封鎖，
-    // 類股強弱也不需要秒級更新
-    var INTRADAY_INTERVAL = 60000;
+    // 與後端快取時間一致。掃描一輪要 24 個請求，間隔太短會讓證交所
+    // 對整個 IP 停止回應 20 分鐘以上，類股輪動也不需要秒級更新
+    var INTRADAY_INTERVAL = 180000;
     var INTRADAY_TOP_INDUSTRIES = 20;
     var INTRADAY_TOP_STOCKS = 30;
     var INTRADAY_PCT_CAP = 3;        // 加權漲跌幅達此值即為最深的顏色
