@@ -7,3 +7,8 @@ __pycache__/
 *.png
 # README 使用的畫面截圖需要納入版控
 !docs/*.png
+
+# 前端建置
+frontend/node_modules/
+# Vite 的建置產物，正式部署仍以 docs/ 為準，切換部署前不納入版控
+dist/
