@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app import config
 from app.db import connect
-from app.services import dataset, intraday
+from app.services import dataset, history, intraday
 
 router = APIRouter(prefix="/api")
 
@@ -417,6 +417,22 @@ def api_intraday(force: bool = Query(False)):
     conn = connect()
     try:
         return intraday.build_intraday(conn, force=force)
+    finally:
+        conn.close()
+
+
+@router.get("/history/{code}")
+def api_history(code: str, months: int = Query(0, ge=0, le=120)):
+    """個股歷史日線，供 K 線圖使用。
+
+    讀的是盤後匯入的本機資料，不會對外送出任何請求，因此靜態站之外的
+    每一頁都能用。週線與月線由前端聚合。
+    """
+    conn = connect()
+    try:
+        return history.build_history(conn, code, months or None)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         conn.close()
 

@@ -15,3 +15,9 @@ dist/
 
 # Vite 的本機快取
 frontend/.vite/
+
+# 行情 API 金鑰 (不納入版控)
+.env
+
+# Shioaji 的連線日誌
+shioaji.log

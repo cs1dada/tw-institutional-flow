@@ -3,6 +3,8 @@ import { createRouter, createWebHashHistory } from "vue-router"
 import IndexChartView from "@/views/IndexChartView.vue"
 import IndustryFlowView from "@/views/IndustryFlowView.vue"
 import IntradayView from "@/views/IntradayView.vue"
+import QuoteView from "@/views/QuoteView.vue"
+import SinoQuoteView from "@/views/SinoQuoteView.vue"
 import EtfView from "@/views/EtfView.vue"
 
 /**
@@ -15,6 +17,8 @@ export const router = createRouter({
         { path: "/", component: IndustryFlowView },
         { path: "/etf", component: EtfView },
         { path: "/intraday", component: IntradayView },
+        { path: "/quote", component: QuoteView },
+        { path: "/sino", component: SinoQuoteView },
         { path: "/index", component: IndexChartView },
         { path: "/:pathMatch(.*)*", redirect: "/" },
     ],

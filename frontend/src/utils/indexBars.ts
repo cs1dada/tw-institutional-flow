@@ -39,8 +39,12 @@ export const DEFAULT_RANGE: Record<Period, RangeKey> = {
     monthly: "all",
 }
 
-/** 指數日線以陣列傳來，展開成物件 */
-export function expandRows(payload: IndexPayload): IndexRow[] {
+/**
+ * 扁平的日線陣列展開成物件。
+ *
+ * 只要求 fields 與 items，因此指數與個股的 payload 都能直接使用。
+ */
+export function expandRows(payload: Pick<IndexPayload, "fields" | "items">): IndexRow[] {
     return (payload.items ?? []).map((row) => {
         const obj: Record<string, unknown> = {}
         payload.fields.forEach((name, index) => {

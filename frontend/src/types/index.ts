@@ -283,3 +283,207 @@ export interface ZoomRange {
     start: number
     end: number
 }
+
+/* ------------------------------------------------------------------ */
+/* 個股即時行情                                                        */
+/* ------------------------------------------------------------------ */
+
+/** 五檔的單一檔位 */
+export interface QuoteLevel {
+    price: number
+    size: number
+}
+
+/** 微型臺指期貨 (來源為期交所) */
+export interface QuoteFuture {
+    code: string
+    name: string
+    price: number | null
+    prev_close: number | null
+    change: number | null
+    pct: number | null
+    open: number | null
+    high: number | null
+    low: number | null
+    /** 成交口數 */
+    volume: number | null
+    bids: QuoteLevel[]
+    asks: QuoteLevel[]
+    /** 尚未開盤時顯示的是試撮價 */
+    trial: boolean
+    time: string
+}
+
+/** 加權指數 (來源為富果)，成交統計為全市場合計 */
+export interface QuoteIndex {
+    code: string
+    name: string
+    price: number | null
+    prev_close: number | null
+    change: number | null
+    pct: number | null
+    open: number | null
+    high: number | null
+    low: number | null
+    /** 全市場成交金額 (元) */
+    amount: number | null
+    /** 全市場成交張數 */
+    volume: number | null
+    transaction: number | null
+    time: string
+}
+
+export interface QuoteOverview {
+    future: QuoteFuture | null
+    index: QuoteIndex | null
+    /** 期現價差：期貨減現貨，正值為正價差 */
+    basis: number | null
+    /** 是否在期貨交易時段 */
+    session: boolean
+    updated_at: string
+    /** 取得失敗時沿用前一份資料，此旗標為 true */
+    stale: boolean
+    error: string | null
+}
+
+export interface QuoteStock {
+    code: string
+    name: string
+    price: number | null
+    prev_close: number | null
+    change: number | null
+    pct: number | null
+    open: number | null
+    high: number | null
+    low: number | null
+    avg: number | null
+    amplitude: number | null
+    /** 成交張數 */
+    volume: number | null
+    /** 成交金額 (元) */
+    amount: number | null
+    transaction: number | null
+    /** 內盤量：以買方掛價成交 */
+    at_bid: number
+    /** 外盤量：以賣方掛價成交 */
+    at_ask: number
+    bids: QuoteLevel[]
+    asks: QuoteLevel[]
+    /** 盤中為 true，盤前試撮與收盤後為 false */
+    continuous: boolean
+    time: string
+}
+
+/** 當日分時 K 線的單一根 */
+export interface QuoteCandle {
+    time: string
+    close: number
+    volume: number
+    average: number
+}
+
+export interface QuoteStockData {
+    quote: QuoteStock
+    candles: QuoteCandle[]
+    updated_at: string
+    stale: boolean
+    error: string | null
+}
+
+export interface QuoteSearchItem {
+    code: string
+    name: string
+    market: string
+    industry: string
+}
+
+/* ------------------------------------------------------------------ */
+/* 永豐 Shioaji 即時行情                                               */
+/* ------------------------------------------------------------------ */
+
+/** Shioaji 快照。期貨、指數與個股共用同一組欄位，缺的為 null */
+export interface SinoSnapshot {
+    code: string
+    price: number | null
+    change: number | null
+    pct: number | null
+    open: number | null
+    high: number | null
+    low: number | null
+    avg: number | null
+    /** 個股為張、期貨為口；指數為全市場成交張數 */
+    volume: number | null
+    /** 成交金額 (元)；指數為全市場合計 */
+    amount: number | null
+    /** 最佳一檔。五檔需要另外訂閱串流，這一頁不做 */
+    bid: number | null
+    ask: number | null
+    bid_volume: number | null
+    ask_volume: number | null
+    /** 與昨日同時間的量能比，大於 1 代表今天量放大 */
+    volume_ratio: number | null
+    yesterday_volume: number | null
+    time: string
+}
+
+export interface SinoCandle {
+    time: string
+    close: number
+    volume: number
+}
+
+export interface SinoQuoteData {
+    future: SinoSnapshot | null
+    index: SinoSnapshot | null
+    stock: SinoSnapshot | null
+    stock_name: string | null
+    /** 期現價差：期貨減現貨，正值為正價差 */
+    basis: number | null
+    candles: SinoCandle[]
+    updated_at: string
+    stale: boolean
+    error: string | null
+}
+
+export interface SinoUsage {
+    connections: number
+    used_mb: number
+    limit_mb: number
+    percent: number
+    /** 這一頁自己的 K 線用量，與官方流量分開計算 */
+    kbar_used: number
+    kbar_limit: number
+}
+
+export interface SinoSearchItem {
+    code: string
+    name: string
+    exchange: string
+}
+
+/**
+ * 個股歷史日線。格式與 IndexPayload 相同，可共用聚合工具。
+ *
+ * 兩個來源共用這個型別：本機資料庫 (source 為 db) 與行情 API，
+ * 前者不消耗任何額度，是優先選擇。
+ */
+export interface StockHistory {
+    code: string
+    name: string | null
+    /** TWSE / TPEX / TAIFEX。期貨的價格軸與成交量單位與個股不同 */
+    market?: string | null
+    months: number
+    fields: string[]
+    items: (string | number | null)[][]
+    /** 資料庫來源會附上涵蓋範圍，供呼叫端判斷夠不夠用 */
+    earliest?: string | null
+    latest?: string | null
+    source?: string
+    updated_at?: string
+    /** 成交量副圖的軸名與單位。個股是成交金額（億），期貨是成交量（口） */
+    turnover_label?: string
+    turnover_unit?: string
+}
+
+/** 個股走勢圖的週期。intraday 為當日分時，其餘沿用指數頁的 Period */
+export type SinoPeriod = "intraday" | Period

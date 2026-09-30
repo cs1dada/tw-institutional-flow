@@ -17,13 +17,12 @@ import {
     RANGE_PRESETS,
     aggregate,
     expandRows,
-    movingAverage,
     rangeBounds,
     visibleRange,
     withChange,
     type RangeKey,
 } from "@/utils/indexBars"
-import { baseTooltip, buyColor, colors, sellColor } from "@/utils/theme"
+import { buildCandleOption } from "@/utils/candleChart"
 
 const INDEX_TABLE_ROWS = 20
 
@@ -81,162 +80,12 @@ const chartOption = computed(() => {
     if (!zoom.value || !bars.value.length) {
         return {}
     }
-    const c = colors()
-    const list = bars.value
-    const labels = list.map((bar) => bar.label)
-    const maSizes = PERIOD_MA[period.value]
-    const maColors = [c.foreign, c.trust, c.dealer]
-
-    const maSeries = maSizes.map((size, index) => ({
-        name: `MA${size}`,
-        type: "line",
-        data: movingAverage(list, size),
-        smooth: true,
-        symbol: "none",
-        lineStyle: { width: 1.5, color: maColors[index] },
-        itemStyle: { color: maColors[index] },
-        z: 3,
-    }))
-
-    return {
-        animation: false,
-        legend: {
-            data: maSizes.map((size) => `MA${size}`),
-            top: 0,
-            icon: "roundRect",
-            itemWidth: 10,
-            itemHeight: 10,
-            itemGap: 18,
-            textStyle: { color: c.secondary, fontSize: 12 },
-        },
-        axisPointer: { link: [{ xAxisIndex: "all" }] },
-        tooltip: {
-            ...baseTooltip(),
-            trigger: "axis",
-            axisPointer: { type: "cross", label: { backgroundColor: c.secondary } },
-            formatter: (params: any[]) => {
-                const bar = list[params[0].dataIndex]
-                if (!bar) {
-                    return ""
-                }
-                const color = bar.diff === null || bar.diff >= 0 ? buyColor() : sellColor()
-                const lines = [
-                    `<strong>${bar.label}${bar.days > 1 ? `　${bar.days} 個交易日` : ""}</strong>`,
-                    `開盤　${bar.open.toFixed(2)}`,
-                    `最高　${bar.high.toFixed(2)}`,
-                    `最低　${bar.low.toFixed(2)}`,
-                    `收盤　${bar.close.toFixed(2)}`,
-                    `漲跌　<span style="color:${color}">${signed(bar.diff)}（${signed(bar.pct)}%）</span>`,
-                    `成交金額　${bar.turnover.toFixed(0)} 億`,
-                ]
-                for (const item of params) {
-                    if (item.seriesType === "line" && item.data !== "-") {
-                        lines.push(`${item.marker}${item.seriesName}　${item.data}`)
-                    }
-                }
-                return lines.join("<br>")
-            },
-        },
-        grid: [
-            { left: 68, right: 24, top: 36, height: 350 },
-            { left: 68, right: 24, top: 410, height: 84 },
-        ],
-        xAxis: [
-            {
-                type: "category",
-                data: labels,
-                axisLine: { lineStyle: { color: c.border } },
-                axisTick: { show: false },
-                // 日期只標在下方的成交量副圖，兩張圖之間不再夾一排文字
-                axisLabel: { show: false },
-                splitLine: { show: false },
-                min: "dataMin",
-                max: "dataMax",
-            },
-            {
-                type: "category",
-                gridIndex: 1,
-                data: labels,
-                axisLine: { lineStyle: { color: c.border } },
-                axisTick: { show: false },
-                axisLabel: { color: c.muted, fontSize: 11 },
-                splitLine: { show: false },
-                min: "dataMin",
-                max: "dataMax",
-            },
-        ],
-        yAxis: [
-            {
-                scale: true,
-                name: "指數",
-                nameTextStyle: { color: c.muted, fontSize: 11 },
-                axisLine: { show: false },
-                axisTick: { show: false },
-                axisLabel: { color: c.muted, fontSize: 11 },
-                splitLine: { lineStyle: { color: c.border, type: "dashed" } },
-            },
-            {
-                gridIndex: 1,
-                name: "成交金額（億）",
-                nameGap: 10,
-                nameTextStyle: { color: c.muted, fontSize: 11, align: "left" },
-                splitNumber: 2,
-                axisLine: { show: false },
-                axisTick: { show: false },
-                axisLabel: { color: c.muted, fontSize: 11 },
-                splitLine: { lineStyle: { color: c.border, type: "dashed" } },
-            },
-        ],
-        dataZoom: [
-            {
-                type: "inside",
-                xAxisIndex: [0, 1],
-                startValue: zoom.value.start,
-                endValue: zoom.value.end,
-            },
-            {
-                type: "slider",
-                xAxisIndex: [0, 1],
-                startValue: zoom.value.start,
-                endValue: zoom.value.end,
-                bottom: 12,
-                height: 20,
-                borderColor: c.border,
-                fillerColor: "rgba(42, 120, 214, 0.12)",
-                handleStyle: { color: c.surface, borderColor: c.muted },
-                textStyle: { color: c.muted, fontSize: 11 },
-            },
-        ],
-        series: [
-            {
-                name: "K 線",
-                type: "candlestick",
-                data: list.map((bar) => [bar.open, bar.close, bar.low, bar.high]),
-                itemStyle: {
-                    // ECharts 的 color 為收高於開的陽線，台股慣例為紅漲綠跌
-                    color: buyColor(),
-                    color0: sellColor(),
-                    borderColor: buyColor(),
-                    borderColor0: sellColor(),
-                },
-                z: 2,
-            },
-            ...maSeries,
-            {
-                name: "成交金額",
-                type: "bar",
-                xAxisIndex: 1,
-                yAxisIndex: 1,
-                data: list.map((bar) => ({
-                    value: +bar.turnover.toFixed(0),
-                    itemStyle: {
-                        color: bar.close >= bar.open ? buyColor() : sellColor(),
-                        opacity: 0.55,
-                    },
-                })),
-            },
-        ],
-    }
+    // 圖表設定與個股 K 線共用，改配色或版面只要改 utils/candleChart.ts
+    return buildCandleOption(bars.value, {
+        maSizes: PERIOD_MA[period.value],
+        zoom: zoom.value,
+        priceName: "指數",
+    })
 })
 
 const headline = computed(() => {
