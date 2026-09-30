@@ -22,6 +22,9 @@ T86_MIN_COLUMNS = 19
 QUOTE_CODE = 0
 QUOTE_VOLUME = 2
 QUOTE_TURNOVER = 4
+QUOTE_OPEN = 5
+QUOTE_HIGH = 6
+QUOTE_LOW = 7
 QUOTE_CLOSE = 8
 QUOTE_MIN_COLUMNS = 9
 
@@ -112,6 +115,9 @@ def fetch_quotes(date_str):
                 continue
             code = raw[QUOTE_CODE].strip()
             quotes[code] = {
+                "open": to_float(raw[QUOTE_OPEN]),
+                "high": to_float(raw[QUOTE_HIGH]),
+                "low": to_float(raw[QUOTE_LOW]),
                 "close": to_float(raw[QUOTE_CLOSE]),
                 "volume": to_int(raw[QUOTE_VOLUME]),
                 "turnover": to_int(raw[QUOTE_TURNOVER]),

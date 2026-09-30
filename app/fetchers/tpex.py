@@ -25,6 +25,9 @@ INST_MIN_COLUMNS = 24
 # 每日收盤行情的欄位位置
 QUOTE_CODE = 0
 QUOTE_CLOSE = 2
+QUOTE_OPEN = 4
+QUOTE_HIGH = 5
+QUOTE_LOW = 6
 QUOTE_VOLUME = 7
 QUOTE_TURNOVER = 8
 QUOTE_MIN_COLUMNS = 9
@@ -95,6 +98,9 @@ def fetch_quotes(date_str):
         if len(raw) < QUOTE_MIN_COLUMNS:
             continue
         quotes[raw[QUOTE_CODE].strip()] = {
+            "open": to_float(raw[QUOTE_OPEN]),
+            "high": to_float(raw[QUOTE_HIGH]),
+            "low": to_float(raw[QUOTE_LOW]),
             "close": to_float(raw[QUOTE_CLOSE]),
             "volume": to_int(raw[QUOTE_VOLUME]),
             "turnover": to_int(raw[QUOTE_TURNOVER]),

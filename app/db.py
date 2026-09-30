@@ -19,6 +19,9 @@ CREATE INDEX IF NOT EXISTS idx_stock_info_industry ON stock_info(industry);
 CREATE TABLE IF NOT EXISTS daily_price (
     date            TEXT NOT NULL,
     code            TEXT NOT NULL,
+    open            REAL,
+    high            REAL,
+    low             REAL,
     close           REAL,
     volume          INTEGER,
     turnover        INTEGER,
@@ -101,6 +104,24 @@ CREATE TABLE IF NOT EXISTS etf_snapshot (
     PRIMARY KEY (date, etf_code)
 );
 
+-- 期貨每日行情 (期交所每日交易行情下載)
+CREATE TABLE IF NOT EXISTS future_daily (
+    date            TEXT NOT NULL,
+    commodity       TEXT NOT NULL,   -- 商品代碼，例如 TMF (微型臺指期貨)
+    contract_month  TEXT NOT NULL,   -- 到期月份，例如 202610
+    session         TEXT NOT NULL,   -- regular (一般) / afterhours (盤後)
+    open            REAL,
+    high            REAL,
+    low             REAL,
+    close           REAL,
+    settlement      REAL,            -- 結算價，盤後時段沒有
+    volume          INTEGER NOT NULL DEFAULT 0,
+    open_interest   INTEGER,         -- 未沖銷契約數，盤後時段沒有
+    PRIMARY KEY (date, commodity, contract_month, session)
+);
+CREATE INDEX IF NOT EXISTS idx_future_daily_lookup
+    ON future_daily(commodity, session, date, contract_month);
+
 -- 每日匯入狀態，供重跑與排錯使用
 CREATE TABLE IF NOT EXISTS ingest_log (
     date            TEXT NOT NULL,
@@ -124,12 +145,30 @@ def connect():
     return conn
 
 
+# 後來才加入的欄位。CREATE TABLE IF NOT EXISTS 不會替既有資料表補欄位，
+# 因此另外以 ALTER TABLE 補上。已存在的欄位會被略過，可重複執行。
+MIGRATIONS = [
+    # 個股開高低。證交所與櫃買的收盤行情本來就含這三欄，改為一併存下來供 K 線圖使用
+    ("daily_price", "open", "REAL"),
+    ("daily_price", "high", "REAL"),
+    ("daily_price", "low", "REAL"),
+]
+
+
+def _apply_migrations(conn):
+    for table, column, column_type in MIGRATIONS:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
+
 def init_schema(conn=None):
-    """建立所有資料表 (可重複執行)。"""
+    """建立所有資料表並套用欄位異動 (可重複執行)。"""
     own = conn is None
     conn = conn or connect()
     try:
         conn.executescript(SCHEMA)
+        _apply_migrations(conn)
         conn.commit()
     finally:
         if own:

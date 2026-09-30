@@ -101,6 +101,9 @@ def ingest_market(conn, date_str, market):
             {
                 "date": date_str,
                 "code": code,
+                "open": quote.get("open"),
+                "high": quote.get("high"),
+                "low": quote.get("low"),
                 "close": close,
                 "volume": quote.get("volume", 0),
                 "turnover": quote.get("turnover", 0),
@@ -128,9 +131,10 @@ def ingest_market(conn, date_str, market):
 
     conn.executemany(
         """
-        INSERT INTO daily_price (date, code, close, volume, turnover)
-        VALUES (:date, :code, :close, :volume, :turnover)
+        INSERT INTO daily_price (date, code, open, high, low, close, volume, turnover)
+        VALUES (:date, :code, :open, :high, :low, :close, :volume, :turnover)
         ON CONFLICT(date, code) DO UPDATE SET
+            open = excluded.open, high = excluded.high, low = excluded.low,
             close = excluded.close, volume = excluded.volume, turnover = excluded.turnover
         """,
         price_records,
