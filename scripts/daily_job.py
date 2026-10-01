@@ -5,8 +5,8 @@
 2. 匯入今日資料
 3. 抓取主動式 ETF 最新一日的持股 (過去的日期用 backfill_etf.py 回補)
 4. 更新大盤指數日線 (證交所以月為單位提供，重抓最近兩個月即可)
-5. 補抓近 7 天內只收錄到單一市場的日期
-   (上市約 16:00 才公布，若排程跑得早會只拿到上櫃)
+5. 補抓近 7 天內資料不齊全的工作日
+   (上市約 16:00 才公布，排程跑得早會只拿到上櫃或整天沒有資料)
 
 用法：
     python scripts/daily_job.py
@@ -45,20 +45,45 @@ def refresh_stock_info_if_stale(conn):
 
 
 def find_incomplete_dates(conn):
-    """找出近期只收錄到單一市場的日期。"""
-    since = (date.today() - timedelta(days=RECHECK_DAYS)).strftime("%Y%m%d")
+    """找出近期資料不齊全、需要重抓的工作日。
+
+    包含三種情況：
+    - 只收錄到單一市場 (上市約 16:00 才公布，排程跑得早會只拿到上櫃)
+    - 兩個市場都沒有資料，且只在當天抓過 (可能是當天太早抓、尚未公布)
+    - 完全沒有抓取紀錄 (排程當天沒有執行)
+
+    兩個市場都沒有資料、但隔天之後重抓仍查無資料的日期，視為休市日不再重抓，
+    避免連假期間每天重複查詢。
+    """
+    today = date.today()
+    since = (today - timedelta(days=RECHECK_DAYS)).strftime("%Y%m%d")
     rows = conn.execute(
         """
-        SELECT date, COUNT(*) AS ok_markets
+        SELECT date,
+               SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) AS ok_markets,
+               MAX(REPLACE(SUBSTR(updated_at, 1, 10), '-', '')) AS last_fetched
         FROM ingest_log
-        WHERE date >= ? AND status = 'ok'
+        WHERE date >= ?
         GROUP BY date
-        HAVING ok_markets < 2
-        ORDER BY date
         """,
         (since,),
     ).fetchall()
-    return [row["date"] for row in rows]
+    logs = {row["date"]: row for row in rows}
+
+    pending = []
+    for offset in range(RECHECK_DAYS, 0, -1):
+        day = today - timedelta(days=offset)
+        if day.weekday() >= 5:
+            continue
+        date_str = day.strftime("%Y%m%d")
+        log = logs.get(date_str)
+        if log is None:
+            pending.append(date_str)
+        elif log["ok_markets"] >= 2:
+            continue
+        elif log["ok_markets"] == 1 or log["last_fetched"] <= date_str:
+            pending.append(date_str)
+    return pending
 
 
 def index_months(conn):
