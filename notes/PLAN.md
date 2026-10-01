@@ -49,7 +49,8 @@ D:\sideproject\stock\
 ├── data\
 │   └── stock.db
 ├── requirements.txt
-├── PLAN.md
+├── notes\
+│   └── PLAN.md
 └── README.md
 ```
 

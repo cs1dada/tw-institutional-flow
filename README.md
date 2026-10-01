@@ -252,7 +252,7 @@ python scripts/deploy_web.py     # 複製 dist/ 到 docs/，保留 docs/data/
 cd docs && python -m http.server 8010
 ```
 
-資料流、兩種模式的差異與設計取捨詳見 [ARCHITECTURE.md](ARCHITECTURE.md)。
+資料流、兩種模式的差異與設計取捨詳見 [notes/ARCHITECTURE.md](notes/ARCHITECTURE.md)。
 
 ### 每日自動更新
 
@@ -377,11 +377,10 @@ app/
   static/           前端頁面 (ECharts 置於 static/vendor，不依賴 CDN)
 scripts/            命令列腳本
 data/stock.db       SQLite 資料庫
-PLAN.md             實作計畫
-SCHEMA.md           資料表用途與欄位說明
+notes/              規劃與設計文件 (ARCHITECTURE、PLAN、SCHEMA)
 ```
 
-資料表的欄位定義、單位、資料來源與常用查詢寫在 [SCHEMA.md](SCHEMA.md)。
+資料表的欄位定義、單位、資料來源與常用查詢寫在 [notes/SCHEMA.md](notes/SCHEMA.md)。
 
 ## 網站功能
 
