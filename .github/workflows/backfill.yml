@@ -1,0 +1,104 @@
+name: 回補歷史資料
+
+# 手動觸發：在 GitHub 的 Actions 頁面選擇本 workflow，按 Run workflow 並填入區間。
+# 回補結果寫入每日排程共用的資料庫快取，之後每天的排程都會沿用。
+on:
+  workflow_dispatch:
+    inputs:
+      etf_start:
+        description: 'ETF 持股回補起日 (YYYYMMDD，空白則不回補)'
+        default: '20260101'
+        required: false
+      etf_end:
+        description: 'ETF 持股回補迄日 (YYYYMMDD)'
+        default: '20260630'
+        required: false
+      inst_start:
+        description: '三大法人回補起日 (YYYYMMDD，空白則不回補)'
+        default: ''
+        required: false
+      inst_end:
+        description: '三大法人回補迄日 (YYYYMMDD)'
+        default: ''
+        required: false
+
+permissions:
+  contents: write
+
+# 與每日排程共用同一組，同時觸發時排隊執行，避免兩者同時修改資料庫
+concurrency:
+  group: daily-update
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: 安裝相依套件
+        run: pip install -r requirements.txt
+
+      # 還原與存回分成兩步，回補逾時或失敗時仍能把已完成的部分存回快取，
+      # 再次執行時兩支回補腳本都會略過已存在的日期，從中斷處繼續
+      - name: 還原資料庫快取
+        uses: actions/cache/restore@v4
+        with:
+          path: data/stock.db
+          key: stock-db-${{ github.run_id }}
+          restore-keys: |
+            stock-db-
+
+      - name: 確認資料庫存在
+        run: |
+          if [ ! -f data/stock.db ]; then
+            echo "找不到資料庫快取，請先執行一次每日排程"
+            exit 1
+          fi
+
+      - name: 回補三大法人
+        if: inputs.inst_start != '' && inputs.inst_end != ''
+        timeout-minutes: 60
+        continue-on-error: true
+        # 輸入值經環境變數傳入，避免直接嵌入指令
+        env:
+          START: ${{ inputs.inst_start }}
+          END: ${{ inputs.inst_end }}
+        run: python -u scripts/backfill.py "$START" "$END"
+
+      - name: 回補 ETF 持股
+        if: inputs.etf_start != '' && inputs.etf_end != ''
+        timeout-minutes: 150
+        continue-on-error: true
+        env:
+          START: ${{ inputs.etf_start }}
+          END: ${{ inputs.etf_end }}
+        run: python -u scripts/backfill_etf.py "$START" "$END"
+
+      - name: 存回資料庫快取
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/stock.db
+          key: stock-db-${{ github.run_id }}
+
+      - name: 匯出靜態網站
+        run: python scripts/export_static.py
+
+      - name: 提交並推送
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if git diff --staged --quiet; then
+            echo "資料無變動，略過提交"
+          else
+            git commit -m "chore: 回補歷史資料 $(TZ=Asia/Taipei date +%Y-%m-%d)"
+            git push
+          fi

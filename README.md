@@ -266,6 +266,12 @@ cd docs && python -m http.server 8010
 
 因為 Actions 會自動提交 `docs/`，**本機 push 前記得先 `git pull --rebase`**。
 
+Actions 的資料庫存在快取裡，與本機的 `data/stock.db` 各自獨立。JSON 每次都由
+Actions 的資料庫重新產生，因此本機回補的歷史資料不會出現在線上，必須在 Actions 上回補：
+到 GitHub 的 Actions 頁面選擇「回補歷史資料」（`.github/workflows/backfill.yml`），
+按 Run workflow 並填入 ETF 持股或三大法人的回補區間。回補逾時或失敗時已完成的部分仍會存回快取，
+再執行一次會從中斷處繼續。
+
 Windows 工作排程器設定：
 
 - 觸發程序：每日 16:30（上市三大法人約 16:00 公布，上櫃約 15:30）
