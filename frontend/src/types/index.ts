@@ -487,3 +487,58 @@ export interface StockHistory {
 
 /** 個股走勢圖的週期。intraday 為當日分時，其餘沿用指數頁的 Period */
 export type SinoPeriod = "intraday" | Period
+
+/* ===== 經理人成本 ===== */
+
+export interface EtfCostItem {
+    code: string
+    name: string | null
+    industry: string | null
+    close: number | null
+    /** 最新一日仍持有的 ETF 檔數 */
+    holders: number
+    /** 觀察期間內有買進的 ETF 檔數 */
+    buyers: number
+    buy_count: number
+    buy_shares: number
+    buy_amt: number
+    sell_amt: number
+    /** 全體庫存的加權持倉成本 */
+    cost: number | null
+    /** 等權共識價 */
+    equal: number | null
+    /** 資金加權共識價 */
+    weighted: number | null
+    /** 共識價帶：各家買進均價的 25% 到 75% 分位 */
+    band: [number, number] | null
+}
+
+export interface EtfCostSummary {
+    date: string
+    start: string
+    days: number
+    etfs: { etf_code: string; etf_name: string | null }[]
+    daily: { date: string; buy_amt: number; sell_amt: number }[]
+    items: EtfCostItem[]
+}
+
+export interface EtfCostDetail {
+    code: string
+    name: string | null
+    dates: string[]
+    close: (number | null)[]
+    /** 各 ETF 的持倉成本線，未持有的日子為 null */
+    cost_lines: Record<string, (number | null)[]>
+    overall_cost: (number | null)[]
+    trade_fields: string[]
+    /** [日期, ETF 代號, 股數 (正為買進), 推估成交價] */
+    trades: [string, string, number, number][]
+    /** 偵測到的分割、股票股利、減資 */
+    events: { date: string; factor: number }[]
+    consensus: {
+        buyer_avg: Record<string, number>
+        equal: number
+        weighted: number
+        band: [number, number]
+    } | null
+}

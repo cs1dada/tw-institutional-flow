@@ -167,7 +167,8 @@ docs/data/day/20260910.json
 | 切換「類股內顯示個股」 | 否 |
 | 切換交易日 | 是，下載該日的 day/*.json |
 | 類股近 20 日趨勢圖 | 是，首次下載 history.json |
-| 切到主動式 ETF 頁籤 | 是，首次下載 etf.json |
+| 切到主動式 ETF 頁籤 | 是，首次下載 etf.json 與 etf_cost.json |
+| 在經理人成本表點選個股 | 是，首次下載該股的 etf_cost/{代號}.json |
 
 多數操作不需連網，體感比本機模式更快。
 
@@ -198,6 +199,8 @@ docs/                        GitHub Pages 的根目錄
     day/20260910.json        每個交易日一檔（約 185 KB）
     history.json             各類股近 60 日趨勢（約 106 KB）
     etf.json                 ETF 持股、合計持股與持股變動（約 116 KB）
+    etf_cost.json            經理人成本：各股共識價與每日買賣摘要（約 70 KB）
+    etf_cost/2330.json       個股的成本疊圖資料，每檔約 4 KB，每次匯出整批重建
     index.json               加權指數日線，約十年（約 90 KB）
 ```
 

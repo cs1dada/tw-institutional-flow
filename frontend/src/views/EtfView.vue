@@ -4,17 +4,31 @@
  *
  * 兩件不同的事放在同一頁：ETF 自己被法人買賣的情形 (來自當日資料)，
  * 以及這些 ETF 持有哪些股票 (來自各投信的持股快照)。
+ * 經理人成本區塊由持股快照推估各 ETF 的買進價位，方法見 notes/ETF_STRATEGY.md。
  */
 import { computed, onMounted, ref, watch } from "vue"
 
-import { loadDay, loadEtf, loadMeta } from "@/api/dataSource"
+import { loadDay, loadEtf, loadEtfCost, loadEtfCostDetail, loadMeta } from "@/api/dataSource"
 import BarChart from "@/components/BarChart.vue"
-import type { DateItem, DayData, EtfData, EtfTopStock, Investor, StockFlow } from "@/types"
+import EtfCostChart from "@/components/EtfCostChart.vue"
+import type {
+    DateItem,
+    DayData,
+    EtfCostDetail,
+    EtfCostItem,
+    EtfCostSummary,
+    EtfData,
+    EtfTopStock,
+    Investor,
+    StockFlow,
+} from "@/types"
 import { INVESTOR_LABELS, etfFlowList, expandStocks, marketNote } from "@/utils/flow"
 import { YI, formatDate, toYi } from "@/utils/format"
 import { colors } from "@/utils/theme"
 
 const TOP_CHART_ROWS = 15
+// 經理人成本表格的列數上限，搜尋時不受限
+const COST_TABLE_ROWS = 60
 
 const CHANGE_LABELS: Record<string, string> = {
     new: "新進",
@@ -41,6 +55,86 @@ const headline = computed(() => {
     }
     return `${formatDate(day.value.date)}　${INVESTOR_LABELS[investor.value]}`
 })
+
+/* ===== 經理人成本 ===== */
+
+const cost = ref<EtfCostSummary | null>(null)
+const costCode = ref<string | null>(null)
+const costDetail = ref<EtfCostDetail | null>(null)
+const costHighlight = ref<string | null>(null)
+const costQuery = ref("")
+const costError = ref<string | null>(null)
+
+const costLatest = computed(() => cost.value?.daily.at(-1) ?? null)
+
+const costNote = computed(() => {
+    if (!cost.value) {
+        return costError.value ? `載入失敗：${costError.value}` : "載入中"
+    }
+    return `近 ${cost.value.days} 個交易日（${formatDate(cost.value.start)} ~ ${formatDate(cost.value.date)}），`
+        + `${cost.value.etfs.length} 檔以台股為主的 ETF。買賣價以當日 VWAP 推估，`
+        + "第一個快照之前的庫存以當日收盤價為成本，未扣除申購贖回造成的被動買賣"
+})
+
+const costRows = computed<EtfCostItem[]>(() => {
+    const items = cost.value?.items ?? []
+    const query = costQuery.value.trim()
+    if (!query) {
+        return items.slice(0, COST_TABLE_ROWS)
+    }
+    return items.filter((row) => row.code.includes(query) || (row.name ?? "").includes(query))
+})
+
+const costCurrent = computed(() => cost.value?.items.find((row) => row.code === costCode.value) ?? null)
+
+/** 收盤價相對資金加權共識價的距離 (%) */
+function premium(row: EtfCostItem): number | null {
+    if (row.close === null || !row.weighted) {
+        return null
+    }
+    return (row.close / row.weighted - 1) * 100
+}
+
+function premiumText(row: EtfCostItem): string {
+    const value = premium(row)
+    return value === null ? "--" : `${value > 0 ? "+" : ""}${value.toFixed(1)}%`
+}
+
+function fixed(value: number | null | undefined, digits = 2): string {
+    return value === null || value === undefined ? "--" : value.toFixed(digits)
+}
+
+function lots(shares: number): string {
+    return Math.round(shares / 1000).toLocaleString()
+}
+
+/** 有買進的 ETF 依均價排序，給強調選單用 */
+const costBuyers = computed(() => {
+    const avg = costDetail.value?.consensus?.buyer_avg ?? {}
+    return Object.entries(avg).sort((a, b) => a[1] - b[1])
+})
+
+async function selectCost(code: string) {
+    costCode.value = code
+    costHighlight.value = null
+    try {
+        costDetail.value = await loadEtfCostDetail(code)
+    } catch (err) {
+        costError.value = (err as Error).message
+    }
+}
+
+async function loadCost() {
+    try {
+        cost.value = await loadEtfCost()
+        const first = cost.value.items[0]
+        if (first) {
+            await selectCost(first.code)
+        }
+    } catch (err) {
+        costError.value = (err as Error).message
+    }
+}
 
 /* ===== ETF 自身的法人買賣超 ===== */
 
@@ -146,6 +240,8 @@ watch(selectedDate, (date) => {
 })
 
 onMounted(async () => {
+    // 經理人成本與交易日選單無關，獨立載入
+    loadCost()
     try {
         const meta = await loadMeta()
         dates.value = meta.dates ?? []
@@ -209,6 +305,120 @@ function dateLabel(item: DateItem): string {
                 </div>
             </div>
         </div>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2>經理人的成本在哪裡</h2>
+                <p class="panel-note">{{ costNote }}</p>
+            </div>
+
+            <div v-if="costLatest" class="quote-grid cost-tiles">
+                <div class="quote-card">
+                    <div class="quote-name">{{ formatDate(costLatest.date) }} 全體買進</div>
+                    <div class="quote-value val-buy">{{ toYi(costLatest.buy_amt, 1) }} 億</div>
+                </div>
+                <div class="quote-card">
+                    <div class="quote-name">{{ formatDate(costLatest.date) }} 全體賣出</div>
+                    <div class="quote-value val-sell">{{ toYi(-costLatest.sell_amt, 1) }} 億</div>
+                </div>
+                <div class="quote-card">
+                    <div class="quote-name">淨買賣</div>
+                    <div
+                        class="quote-value"
+                        :class="costLatest.buy_amt >= costLatest.sell_amt ? 'val-buy' : 'val-sell'"
+                    >
+                        {{ toYi(costLatest.buy_amt - costLatest.sell_amt, 1) }} 億
+                    </div>
+                </div>
+            </div>
+
+            <template v-if="costDetail && costCurrent">
+                <p class="table-title cost-title">
+                    {{ costCurrent.code }} {{ costCurrent.name ?? "" }}　收盤 {{ fixed(costCurrent.close) }}
+                    　{{ costCurrent.buyers }} 家出手、{{ costCurrent.buy_count }} 筆買進、
+                    合計 {{ lots(costCurrent.buy_shares) }} 張；
+                    等權共識 {{ fixed(costCurrent.equal) }}，資金加權 {{ fixed(costCurrent.weighted) }}，
+                    價帶 {{ costCurrent.band ? `${fixed(costCurrent.band[0])} ~ ${fixed(costCurrent.band[1])}` : "--" }}
+                </p>
+                <div v-if="costBuyers.length" class="controls controls-inline">
+                    <span class="control-label">強調 ETF</span>
+                    <button
+                        type="button"
+                        class="chip"
+                        :class="{ 'is-active': costHighlight === null }"
+                        @click="costHighlight = null"
+                    >
+                        不強調
+                    </button>
+                    <button
+                        v-for="[code, avg] in costBuyers"
+                        :key="code"
+                        type="button"
+                        class="chip"
+                        :class="{ 'is-active': costHighlight === code }"
+                        @click="costHighlight = code"
+                    >
+                        {{ code }}　均價 {{ fixed(avg) }}
+                    </button>
+                </div>
+                <EtfCostChart :detail="costDetail" :highlight="costHighlight" />
+                <p class="panel-note">
+                    灰色細線為各 ETF 的持倉成本，點選上方 ETF 可單獨上色；橘色底色為共識價帶 (各家買進均價的 25% 到 75% 分位)。
+                    <template v-if="costDetail.events.length">
+                        垂直虛線標示偵測到的分割或股票股利，之前的股價與成本已依倍率還原。
+                    </template>
+                </p>
+            </template>
+
+            <div class="controls controls-inline">
+                <label class="control">
+                    <span class="control-label">搜尋個股</span>
+                    <input v-model="costQuery" type="search" class="cost-search" placeholder="代號或名稱" />
+                </label>
+                <span class="panel-note">依觀察期間的買進金額排序，點選列可切換上方的圖</span>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>代號</th><th>名稱</th>
+                            <th class="num">收盤</th><th class="num">等權共識</th>
+                            <th class="num">資金加權</th><th class="num">價帶</th>
+                            <th class="num">距加權共識</th><th class="num">持倉成本</th>
+                            <th class="num">出手 / 持有</th><th class="num">買進張數</th>
+                            <th class="num">買進（億）</th><th class="num">賣出（億）</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-if="!costRows.length" class="empty-row">
+                            <td colspan="12">無資料</td>
+                        </tr>
+                        <tr
+                            v-for="row in costRows"
+                            :key="row.code"
+                            class="clickable"
+                            :class="{ 'is-selected': row.code === costCode }"
+                            @click="selectCost(row.code)"
+                        >
+                            <td>{{ row.code }}</td>
+                            <td>{{ row.name ?? "" }}</td>
+                            <td class="num">{{ fixed(row.close) }}</td>
+                            <td class="num">{{ fixed(row.equal) }}</td>
+                            <td class="num">{{ fixed(row.weighted) }}</td>
+                            <td class="num">{{ row.band ? `${fixed(row.band[0], 0)} ~ ${fixed(row.band[1], 0)}` : "--" }}</td>
+                            <td class="num" :class="(premium(row) ?? 0) >= 0 ? 'val-buy' : 'val-sell'">
+                                {{ premiumText(row) }}
+                            </td>
+                            <td class="num">{{ fixed(row.cost) }}</td>
+                            <td class="num">{{ row.buyers }} / {{ row.holders }}</td>
+                            <td class="num">{{ lots(row.buy_shares) }}</td>
+                            <td class="num val-buy">{{ toYi(row.buy_amt, 2) }}</td>
+                            <td class="num val-sell">{{ toYi(-row.sell_amt, 2) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
 
         <section class="panel">
             <div class="panel-head">
@@ -350,3 +560,32 @@ function dateLabel(item: DateItem): string {
         </section>
     </section>
 </template>
+
+<style scoped>
+.cost-tiles {
+    margin-bottom: 16px;
+}
+
+.cost-title {
+    color: var(--text-primary);
+    font-weight: 400;
+}
+
+.cost-search {
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-1);
+    color: var(--text-primary);
+    font: inherit;
+}
+
+.clickable {
+    cursor: pointer;
+}
+
+.is-selected td {
+    background: var(--neutral);
+    font-weight: 600;
+}
+</style>

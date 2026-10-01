@@ -13,6 +13,7 @@
     python scripts/export_static.py 30      # 只匯出最近 30 個交易日
 """
 import json
+import shutil
 import sys
 
 import _bootstrap
@@ -21,7 +22,7 @@ _bootstrap.setup_logging()
 
 from app import config
 from app.db import connect
-from app.services import dataset
+from app.services import dataset, etf_cost
 
 DOCS_DIR = config.BASE_DIR / "docs"
 DATA_DIR = DOCS_DIR / "data"
@@ -54,6 +55,24 @@ def check_not_shrinking(target_dates, force):
         print("已指定 --force，繼續覆蓋。")
         return True
     return False
+
+
+def export_etf_cost(conn):
+    """經理人成本：摘要一個檔，個股疊圖各一個檔，點選個股時才下載。
+
+    個股檔每次整批重建，避免已不在觀察期間的個股留下過期的檔案。
+    """
+    summary, details = etf_cost.compute(conn)
+    if summary is None:
+        return
+    size = write_json(DATA_DIR / "etf_cost.json", summary)
+    print(f"etf_cost.json  {size / 1024:.1f} KB")
+
+    detail_dir = DATA_DIR / "etf_cost"
+    if detail_dir.exists():
+        shutil.rmtree(detail_dir)
+    detail_bytes = sum(write_json(detail_dir / f"{code}.json", payload) for code, payload in details.items())
+    print(f"etf_cost/*.json  {len(details)} 檔，共 {detail_bytes / 1024 / 1024:.2f} MB")
 
 
 def main():
@@ -92,6 +111,8 @@ def main():
 
         size = write_json(DATA_DIR / "index.json", dataset.build_index(conn))
         print(f"index.json  {size / 1024:.1f} KB")
+
+        export_etf_cost(conn)
     finally:
         conn.close()
 

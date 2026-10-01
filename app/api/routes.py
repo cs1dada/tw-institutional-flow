@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app import config
 from app.db import connect
-from app.services import dataset, history, intraday
+from app.services import dataset, etf_cost, history, intraday
 
 router = APIRouter(prefix="/api")
 
@@ -445,3 +445,29 @@ def api_etf_data():
         return dataset.build_etf(conn)
     finally:
         conn.close()
+
+
+@router.get("/etf-cost")
+def api_etf_cost():
+    """主動式 ETF 經理人成本：各股的共識價與當日買賣摘要。"""
+    conn = connect()
+    try:
+        payload = etf_cost.build_summary(conn)
+    finally:
+        conn.close()
+    if payload is None:
+        raise HTTPException(status_code=404, detail="尚無持股資料，請先執行 ingest_etf.py")
+    return payload
+
+
+@router.get("/etf-cost/{code}")
+def api_etf_cost_detail(code: str):
+    """單一個股的三層疊圖資料：收盤價、各 ETF 成本線、買賣點與共識價。"""
+    conn = connect()
+    try:
+        payload = etf_cost.build_detail(conn, code)
+    finally:
+        conn.close()
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"觀察期間內沒有 ETF 買賣或持有 {code}")
+    return payload

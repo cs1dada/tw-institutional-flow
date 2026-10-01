@@ -7,7 +7,15 @@
  *
  * 這一層是舊版 app.js「資料層」區塊的等價物，差別只在於改用模組匯出。
  */
-import type { DayData, EtfData, HistoryData, IndexPayload, Meta } from "@/types"
+import type {
+    DayData,
+    EtfCostDetail,
+    EtfCostSummary,
+    EtfData,
+    HistoryData,
+    IndexPayload,
+    Meta,
+} from "@/types"
 
 const MODE: "api" | "static" = window.APP_MODE === "static" ? "static" : "api"
 
@@ -32,6 +40,8 @@ const SOURCES = {
         history: () => versioned("data/history.json"),
         etf: () => versioned("data/etf.json"),
         index: () => versioned("data/index.json"),
+        etfCost: () => versioned("data/etf_cost.json"),
+        etfCostDetail: (code: string) => versioned(`data/etf_cost/${code}.json`),
     },
     api: {
         meta: () => "/api/meta",
@@ -39,6 +49,8 @@ const SOURCES = {
         history: () => "/api/history",
         etf: () => "/api/etf-data",
         index: () => "/api/index-data",
+        etfCost: () => "/api/etf-cost",
+        etfCostDetail: (code: string) => `/api/etf-cost/${code}`,
     },
 } as const
 
@@ -65,12 +77,16 @@ const cache: {
     history: HistoryData | null
     etf: EtfData | null
     index: IndexPayload | null
+    etfCost: EtfCostSummary | null
+    etfCostDetails: Map<string, EtfCostDetail>
 } = {
     meta: null,
     days: new Map(),
     history: null,
     etf: null,
     index: null,
+    etfCost: null,
+    etfCostDetails: new Map(),
 }
 
 export async function loadMeta(): Promise<Meta> {
@@ -130,5 +146,31 @@ export async function loadIndex(): Promise<IndexPayload> {
     }
     const data = await fetchJson<IndexPayload>(SOURCES[MODE].index())
     cache.index = data
+    return data
+}
+
+export async function loadEtfCost(): Promise<EtfCostSummary> {
+    if (cache.etfCost) {
+        return cache.etfCost
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<EtfCostSummary>(SOURCES[MODE].etfCost())
+    cache.etfCost = data
+    return data
+}
+
+/** 個股疊圖資料，點選個股時才下載 */
+export async function loadEtfCostDetail(code: string): Promise<EtfCostDetail> {
+    const cached = cache.etfCostDetails.get(code)
+    if (cached) {
+        return cached
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<EtfCostDetail>(SOURCES[MODE].etfCostDetail(code))
+    cache.etfCostDetails.set(code, data)
     return data
 }
