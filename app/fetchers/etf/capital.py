@@ -3,6 +3,7 @@
 資料來源為群益投信 ETF 專區的申購買回清單 API。
 回應中的 date1 是清單適用日 (次一營業日)，date2 才是持股的基準日，
 與野村、統一的定義一致，因此採用 date2。
+查詢參數 date 對應的是清單適用日，因此查 D 日會取得前一營業日的持股。
 """
 import logging
 
@@ -12,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 API_URL = "https://www.capitalfund.com.tw/CFWeb/api/etf/buyback"
 TIMEOUT = 30
+
+# 查詢日是清單適用日，要取得 D 日的持股須查次一營業日
+QUERY_NEXT_DAY = True
 
 # ETF 代號對應群益網站的基金編號
 FUND_IDS = {
@@ -27,15 +31,19 @@ def _normalize_date(text):
     return digits if len(digits) == 8 else None
 
 
-def fetch_holdings(etf_code):
-    """取得指定 ETF 的最新持股明細，無資料時回傳 None。"""
+def fetch_holdings(etf_code, query_date=None):
+    """取得指定 ETF 的持股明細，無資料時回傳 None。
+
+    query_date 為 None 時取最新一日，否則以該日為清單適用日查詢。
+    """
     fund_id = FUND_IDS.get(etf_code)
     if fund_id is None:
         logger.warning("群益 %s 無對應的基金編號", etf_code)
         return None
 
     session = get_session()
-    resp = session.post(API_URL, json={"fundId": fund_id, "date": None}, timeout=TIMEOUT)
+    list_date = query_date.strftime("%Y-%m-%d") if query_date else None
+    resp = session.post(API_URL, json={"fundId": fund_id, "date": list_date}, timeout=TIMEOUT)
     resp.raise_for_status()
     payload = resp.json()
 

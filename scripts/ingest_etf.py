@@ -1,6 +1,6 @@
 """抓取主動式 ETF 的每日持股。
 
-各投信只提供最新一日快照，需每日執行以累積歷史。
+抓取各投信最新一日的持股；過去的日期用 backfill_etf.py 回補。
 
 用法：
     python scripts/ingest_etf.py

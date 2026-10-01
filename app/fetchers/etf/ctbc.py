@@ -3,6 +3,8 @@
 資料來源為中信 ETF 專區的申購買回清單 API。
 該 API 需要先向 AuthToken 取得動態權杖，再以基金內部代號 (FID) 查詢；
 回傳的 Detail 依資產類別分組，其中 Code 為 STOCK 的才是股票持股。
+查詢參數 StartDate 對應的是清單適用日，因此查 D 日會取得前一營業日的持股；
+實測只保留近期的清單，更早的日期會回傳空內容。
 """
 import logging
 import urllib.parse
@@ -15,6 +17,9 @@ logger = logging.getLogger(__name__)
 AUTH_URL = "https://www.ctbcinvestments.com.tw/API/home/AuthToken?token=www.ctbcinvestments.com"
 BUYBACK_URL = "https://www.ctbcinvestments.com.tw/API/etf/Buyback"
 TIMEOUT = 30
+
+# 查詢日是清單適用日，要取得 D 日的持股須查次一營業日
+QUERY_NEXT_DAY = True
 
 # ETF 代號對應中信內部的基金代號
 FUND_IDS = {
@@ -54,8 +59,11 @@ def _normalize_date(text):
     return digits if len(digits) == 8 else None
 
 
-def fetch_holdings(etf_code):
-    """取得指定 ETF 的最新持股明細，無資料時回傳 None。"""
+def fetch_holdings(etf_code, query_date=None):
+    """取得指定 ETF 的持股明細，無資料時回傳 None。
+
+    query_date 為 None 時取最新一日，否則以該日為清單適用日查詢。
+    """
     fund_id = FUND_IDS.get(etf_code)
     if fund_id is None:
         logger.warning("中信 %s 無對應的基金代號", etf_code)
@@ -64,7 +72,7 @@ def fetch_holdings(etf_code):
     session = get_session()
     token = _get_token()
     url = BUYBACK_URL + "?token=" + urllib.parse.quote(token, safe="")
-    body = {"token": token, "FID": fund_id, "StartDate": date.today().strftime("%Y-%m-%d")}
+    body = {"token": token, "FID": fund_id, "StartDate": (query_date or date.today()).strftime("%Y-%m-%d")}
     resp = session.post(url, json=body, timeout=TIMEOUT)
     resp.raise_for_status()
     payload = resp.json()

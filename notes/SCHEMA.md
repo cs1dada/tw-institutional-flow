@@ -160,8 +160,8 @@
 
 **來源**：各投信官網，由 `scripts/ingest_etf.py` 抓取。
 
-**只能從開始抓取之日累積**。投信官網只提供當日持股，沒有歷史查詢，
-錯過的日期無法回補，這是這張表與其他表最大的差別。
+過去的日期可用 `scripts/backfill_etf.py` 回補，但中信只保留近期的清單，
+更早的日期查不到。
 日期以投信的**淨值日**為準，可能落後交易日一到兩天。
 
 **索引**：`idx_etf_holding_date (date)`、`idx_etf_holding_stock (stock_code)`

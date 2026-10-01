@@ -3,9 +3,11 @@
 資料來源為統一投信 ETF 專區的申購買回清單 (PCF) API，
 內含當日成分股明細、基金淨資產與已發行單位數。
 API 以統一內部的基金代碼查詢，因此需要 ETF 代號對照表。
+指定日期 (specificDate) 查詢時，date 對應的是清單適用日，會取得前一營業日的持股。
 """
 import logging
-from datetime import date
+import re
+from datetime import date, datetime, timedelta, timezone
 
 from app.http_client import get_session
 
@@ -13,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 API_URL = "https://www.ezmoney.com.tw/ETF/Transaction/GetPCF"
 TIMEOUT = 30
+
+# 查詢日是清單適用日，要取得 D 日的持股須查次一營業日
+QUERY_NEXT_DAY = True
+
+TAIPEI = timezone(timedelta(hours=8))
 
 # ETF 代號對應統一投信內部的基金代碼
 FUND_CODES = {
@@ -27,14 +34,19 @@ PCF_NET_ASSET = "NAV"        # 基金淨資產價值(元)
 PCF_OUT_UNIT = "OUT_UNIT"    # 已發行受益權單位總數
 
 
-def _roc_today():
-    """今天的民國日期，格式為 115/09/11。"""
-    today = date.today()
-    return f"{today.year - 1911}/{today.month:02d}/{today.day:02d}"
+def _roc_date(day):
+    """民國日期，格式為 115/09/11。"""
+    return f"{day.year - 1911}/{day.month:02d}/{day.day:02d}"
 
 
 def _normalize_date(text):
-    """將 2026-09-10T00:00:00 轉為 20260910。"""
+    """將 2026-09-10T00:00:00 或 /Date(1788105600000)/ 轉為 20260910。
+
+    指定日期查詢時回傳的是 .NET 的毫秒時間戳，以台北時間換算日期。
+    """
+    match = re.fullmatch(r"/Date\((\d+)\)/", str(text))
+    if match:
+        return datetime.fromtimestamp(int(match.group(1)) / 1000, TAIPEI).strftime("%Y%m%d")
     digits = "".join(ch for ch in str(text)[:10] if ch.isdigit())
     return digits if len(digits) == 8 else None
 
@@ -46,8 +58,11 @@ def _pcf_amount(rows, code):
     return None
 
 
-def fetch_holdings(etf_code):
-    """取得指定 ETF 的最新持股明細，無資料時回傳 None。"""
+def fetch_holdings(etf_code, query_date=None):
+    """取得指定 ETF 的持股明細，無資料時回傳 None。
+
+    query_date 為 None 時取最新一日，否則以該日為清單適用日查詢。
+    """
     fund_code = FUND_CODES.get(etf_code)
     if fund_code is None:
         logger.warning("統一 %s 無對應的基金代碼", etf_code)
@@ -56,7 +71,11 @@ def fetch_holdings(etf_code):
     session = get_session()
     resp = session.post(
         API_URL,
-        json={"fundCode": fund_code, "date": _roc_today(), "specificDate": False},
+        json={
+            "fundCode": fund_code,
+            "date": _roc_date(query_date or date.today()),
+            "specificDate": query_date is not None,
+        },
         timeout=TIMEOUT,
     )
     resp.raise_for_status()

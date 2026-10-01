@@ -478,11 +478,20 @@ ETF 的**自營商**買賣超多為參與券商的造市部位（有維持流動
 尚未介接：國泰、摩根、富邦、凱基、第一金、復華、永豐、台新、元大、兆豐、聯博
 （合計 16 檔）。
 
-**這些 API 只提供最新一日的快照，沒有歷史**，因此：
+每日由 `scripts/ingest_etf.py`（已納入 `daily_job.py`）抓取最新一日的持股。
+「今天買了什麼」是由相鄰兩日的快照相減得出。
 
-- 必須每日執行 `scripts/ingest_etf.py`（已納入 `daily_job.py`）才能累積
-- 「今天買了什麼」是由相鄰兩日的快照相減得出，需要累積兩日以上才有資料
-- 過去的持股變動無法回補
+**過去的持股可以回補**。這些 API 都接受日期參數，只是語意不同：野村查的是持股日本身，
+其餘四家查的是清單適用日，會取得前一營業日的持股。`backfill_etf.py` 會依投信換算：
+
+```bash
+python scripts/backfill_etf.py 92                   # 最近 92 個日曆日
+python scripts/backfill_etf.py 20260701 20260929    # 指定區間
+python scripts/backfill_etf.py 92 00980A 00981A     # 只補指定幾檔
+```
+
+已存在的日期會自動略過；連續三個交易日查無資料時，視為已超出上市日或投信保留的範圍而停止。
+中信只保留近期的清單，更早的日期查不到。
 
 各投信的持股基準日不一定相同（海外股票 ETF 通常晚一日），因此以 API 回傳的
 基準日為準，而非抓取當天的日期。
@@ -493,8 +502,8 @@ B 檔是 09-09，直接比對會讓 A 檔的所有持股都被誤判為「新進
 
 #### 新增投信
 
-在 `app/fetchers/etf/` 新增一個模組，實作 `fetch_holdings(etf_code)` 回傳統一
-格式，再於 `app/fetchers/etf/__init__.py` 的 `ISSUERS` 與 `ETF_ISSUER` 註冊即可。
+在 `app/fetchers/etf/` 新增一個模組，實作 `fetch_holdings(etf_code, query_date=None)`
+並定義 `QUERY_NEXT_DAY`，回傳統一格式，再於 `app/fetchers/etf/__init__.py` 的 `ISSUERS` 與 `ETF_ISSUER` 註冊即可。
 格式定義見該檔案的 docstring。
 
 ### 大盤指數

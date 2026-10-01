@@ -1,7 +1,7 @@
 """主動式 ETF 每日持股抓取。
 
 各家投信的持股只公布在自己的官網，沒有集中來源，因此一家投信一個模組，
-各自實作 `fetch_holdings(etf_code)`，回傳統一格式：
+各自實作 `fetch_holdings(etf_code, query_date=None)`，回傳統一格式：
 
     {
         "etf_code": "00980A",
@@ -15,6 +15,9 @@
             ...
         ],
     }
+
+模組另需定義 QUERY_NEXT_DAY：查詢日若是清單適用日 (取得前一營業日的持股) 則為 True，
+回補歷史時據此決定要查哪一天。
 
 新增投信時，實作一個模組並在 ISSUERS 註冊，再把旗下 ETF 代號加入 ETF_ISSUER。
 """
@@ -60,12 +63,20 @@ def supported_etfs():
     return sorted(ETF_ISSUER)
 
 
-def fetch_holdings(etf_code):
-    """抓取單一 ETF 的持股明細，未介接的投信回傳 None。"""
+def fetch_holdings(etf_code, query_date=None):
+    """抓取單一 ETF 的持股明細，未介接的投信回傳 None。
+
+    query_date 為 None 時取最新一日，否則以該日查詢 (日期語意依投信而定，見 query_next_day)。
+    """
     issuer = ETF_ISSUER.get(etf_code)
     if issuer is None:
         return None
-    return ISSUERS[issuer].fetch_holdings(etf_code)
+    return ISSUERS[issuer].fetch_holdings(etf_code, query_date)
+
+
+def query_next_day(etf_code):
+    """該 ETF 的投信是否要查次一營業日，才能取得指定日期的持股。"""
+    return ISSUERS[ETF_ISSUER[etf_code]].QUERY_NEXT_DAY
 
 
 def issuer_of(etf_code):

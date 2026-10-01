@@ -1,7 +1,7 @@
 """野村投信的主動式 ETF 持股抓取。
 
 資料來源為野村投信 ETF 專區的 GetFundAssets API，回傳當日持股明細與基金規模。
-該 API 只提供最新一日的快照，沒有歷史，因此必須每日抓取並自行累積。
+SearchDate 帶入日期即可查詢過去的持股，回傳的就是該日的持股。
 """
 import logging
 
@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 API_URL = "https://www.nomurafunds.com.tw/API/ETFAPI/api/Fund/GetFundAssets"
 TIMEOUT = 30
+
+# 查詢日即持股日，回補時直接查目標日期
+QUERY_NEXT_DAY = False
 
 # 持股表格的欄位順序：股票代號、股票名稱、股數、權重
 COL_CODE = 0
@@ -35,10 +38,16 @@ def _normalize_date(text):
     return digits if len(digits) == 8 else None
 
 
-def fetch_holdings(etf_code):
-    """取得指定 ETF 的最新持股明細，無資料時回傳 None。"""
+def fetch_holdings(etf_code, query_date=None):
+    """取得指定 ETF 的持股明細，無資料時回傳 None。
+
+    query_date 為 None 時取最新一日，否則查詢該日。
+    """
     session = get_session()
-    resp = session.post(API_URL, json={"FundID": etf_code, "SearchDate": None}, timeout=TIMEOUT)
+    search_date = query_date.strftime("%Y-%m-%d") if query_date else None
+    resp = session.post(
+        API_URL, json={"FundID": etf_code, "SearchDate": search_date}, timeout=TIMEOUT
+    )
     resp.raise_for_status()
     payload = resp.json()
 

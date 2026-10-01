@@ -3,6 +3,7 @@
 資料來源為安聯投信主動式 ETF 專區的交易資訊 API。
 呼叫前需先取得 AntiForgery 權杖，並以 x-xsrf-token 標頭送出；
 持股放在 DynamicTableData 中標題以「股票」開頭的表格。
+查詢參數 Date 對應的是清單適用日，因此查 D 日會取得前一營業日的持股。
 """
 import logging
 
@@ -14,6 +15,9 @@ TOKEN_URL = "https://etf.allianzgi.com.tw/webapi/api/AntiForgery/GetAntiForgeryT
 API_URL = "https://etf.allianzgi.com.tw/webapi/api/Fund/GetFundTradeInfo"
 REFERER = "https://etf.allianzgi.com.tw/list-trade"
 TIMEOUT = 30
+
+# 查詢日是清單適用日，要取得 D 日的持股須查次一營業日
+QUERY_NEXT_DAY = True
 
 # ETF 代號對應安聯內部的基金編號
 FUND_NOS = {
@@ -60,27 +64,31 @@ def _normalize_date(text):
     return digits if len(digits) == 8 else None
 
 
-def _request(fund_no, token):
+def _request(fund_no, token, query_date=None):
     session = get_session()
+    list_date = query_date.strftime("%Y-%m-%d") if query_date else None
     return session.post(
         API_URL,
-        json={"Date": None, "FundNo": fund_no},
+        json={"Date": list_date, "FundNo": fund_no},
         headers={"x-xsrf-token": token, "Referer": REFERER},
         timeout=TIMEOUT,
     )
 
 
-def fetch_holdings(etf_code):
-    """取得指定 ETF 的最新持股明細，無資料時回傳 None。"""
+def fetch_holdings(etf_code, query_date=None):
+    """取得指定 ETF 的持股明細，無資料時回傳 None。
+
+    query_date 為 None 時取最新一日，否則以該日為清單適用日查詢。
+    """
     fund_no = FUND_NOS.get(etf_code)
     if fund_no is None:
         logger.warning("安聯 %s 無對應的基金編號", etf_code)
         return None
 
-    resp = _request(fund_no, _get_token())
+    resp = _request(fund_no, _get_token(), query_date)
     # 權杖過期時重新取得再試一次
     if resp.status_code == 400:
-        resp = _request(fund_no, _get_token(refresh=True))
+        resp = _request(fund_no, _get_token(refresh=True), query_date)
     resp.raise_for_status()
 
     entries = resp.json().get("Entries") or {}
