@@ -192,6 +192,8 @@ def build_day(conn, date_str):
         # 連續天數需要跨日資料，前端手上只有當日資料，因此在此算好
         "streak": _streak(conn, date_str),
         "streak_days": STREAK_DAYS,
+        # 主動式 ETF 截至當日的持股變動，切換交易日時跟著換
+        "etf_changes": _etf_changes(conn, date_str),
     }
 
 
@@ -271,20 +273,26 @@ def build_etf(conn):
     }
 
 
-def _etf_changes(conn, limit=80):
-    """每檔 ETF 與自己的前一個快照比對出的持股變動。"""
+def _etf_changes(conn, date_str=None, limit=None):
+    """每檔 ETF 與自己的前一個快照比對出的持股變動。
+
+    指定 date_str 時，每檔取該日或之前最新的快照；海外持股的 ETF 基準日較晚，
+    可能比對的是前一日。未指定時取各檔自己的最新快照。
+    前端依 ETF 篩選顯示，因此預設回傳全部異動，不做筆數截斷。
+    """
     pairs = conn.execute(
         """
         WITH ranked AS (
             SELECT etf_code, date,
                    DENSE_RANK() OVER (PARTITION BY etf_code ORDER BY date DESC) AS rk
-            FROM (SELECT DISTINCT etf_code, date FROM etf_holding)
+            FROM (SELECT DISTINCT etf_code, date FROM etf_holding WHERE date <= ?)
         )
         SELECT c.etf_code, c.date AS curr_date, p.date AS prev_date
         FROM ranked AS c
         JOIN ranked AS p ON p.etf_code = c.etf_code AND p.rk = 2
         WHERE c.rk = 1
-        """
+        """,
+        (date_str or "99999999",),
     ).fetchall()
     if not pairs:
         return []
@@ -293,7 +301,7 @@ def _etf_changes(conn, limit=80):
     for pair in pairs:
         for row in conn.execute(
             """
-            SELECT ? AS etf_code,
+            SELECT ? AS etf_code, ? AS date, ? AS prev_date,
                    COALESCE(c.stock_code, p.stock_code) AS stock_code,
                    COALESCE(c.stock_name, p.stock_name) AS stock_name,
                    COALESCE(c.shares, 0) AS shares,
@@ -315,7 +323,7 @@ def _etf_changes(conn, limit=80):
             WHERE COALESCE(c.shares, 0) <> COALESCE(p.shares, 0)
             """,
             (
-                pair["etf_code"],
+                pair["etf_code"], pair["curr_date"], pair["prev_date"],
                 pair["etf_code"], pair["curr_date"],
                 pair["etf_code"], pair["prev_date"],
                 pair["curr_date"],
@@ -323,7 +331,7 @@ def _etf_changes(conn, limit=80):
         ):
             rows.append(dict(row))
     rows.sort(key=lambda r: abs(r["value_change"] or 0), reverse=True)
-    return rows[:limit]
+    return rows[:limit] if limit else rows
 
 
 def build_history(conn, days=HISTORY_DAYS):

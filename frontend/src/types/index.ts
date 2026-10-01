@@ -66,6 +66,8 @@ export interface DayData {
     stocks: (string | number | null)[][]
     streak: Record<AmountField, StreakItem[]>
     streak_days: number
+    /** 主動式 ETF 截至當日的持股變動；舊版匯出的檔案沒有這個欄位 */
+    etf_changes?: EtfChange[]
 }
 
 /** 類股在前端算出 amount (依法人別) 之後的樣子 */
@@ -206,6 +208,10 @@ export interface EtfTopStock {
 
 export interface EtfChange {
     etf_code: string
+    /** 該 ETF 的最新快照日 */
+    date: string
+    /** 比對的前一個快照日 */
+    prev_date: string
     stock_code: string
     stock_name: string | null
     shares: number

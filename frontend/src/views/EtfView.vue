@@ -53,7 +53,7 @@ const headline = computed(() => {
     if (!day.value) {
         return "載入中"
     }
-    return `${formatDate(day.value.date)}　${INVESTOR_LABELS[investor.value]}`
+    return formatDate(day.value.date)
 })
 
 /* ===== 經理人成本 ===== */
@@ -167,16 +167,44 @@ const topNote = computed(() => {
 
 /* ===== 持股變動 ===== */
 
-const changes = computed(() => etf.value?.changes ?? [])
+// 持股變動跟著交易日切換，來自當日資料檔
+const allChanges = computed(() => day.value?.etf_changes ?? [])
+
+/** 持股變動要看的 ETF，一次只顯示一檔 */
+const changeEtf = ref<string | null>(null)
+
+const changeCounts = computed(() => {
+    const counts: Record<string, number> = {}
+    for (const row of allChanges.value) {
+        counts[row.etf_code] = (counts[row.etf_code] ?? 0) + 1
+    }
+    return counts
+})
+
+const changes = computed(() => allChanges.value.filter((row) => row.etf_code === changeEtf.value))
 
 const changeNote = computed(() => {
-    if (!changes.value.length) {
+    if (!allChanges.value.length) {
         const count = etf.value?.dates?.length ?? 0
-        return `持股變動需要每檔 ETF 各有兩個快照，目前只有 ${count} 個日期的資料，明日再執行一次即可比對`
+        return day.value?.etf_changes
+            ? "這個交易日沒有可比對的 ETF 持股快照"
+            : `持股變動需要每檔 ETF 各有兩個快照，目前只有 ${count} 個日期的資料，明日再執行一次即可比對`
     }
-    // 各檔 ETF 的持股基準日不同，因此不標示單一的日期區間
-    return `各 ETF 與自己前一個快照相比的持股變動，共 ${changes.value.length} 筆`
+    const first = changes.value[0]
+    if (!first) {
+        return "這檔 ETF 截至這個交易日的持股與前一個快照相同，沒有異動"
+    }
+    const buy = changes.value.reduce((sum, row) => sum + Math.max(row.value_change ?? 0, 0), 0)
+    const sell = changes.value.reduce((sum, row) => sum + Math.min(row.value_change ?? 0, 0), 0)
+    // 各檔 ETF 的持股基準日不同，因此日期依所選的 ETF 標示
+    return `${formatDate(first.date)} 與前一個快照 ${formatDate(first.prev_date)} 相比，共 ${changes.value.length} 筆；`
+        + `加碼 ${toYi(buy, 2)} 億、減碼 ${toYi(sell, 2)} 億`
 })
+
+function changeOptionLabel(code: string, name: string | null): string {
+    const count = changeCounts.value[code] ?? 0
+    return `${code} ${name ?? ""}（${count ? `${count} 筆` : "無異動"}）`
+}
 
 /* ===== 持股明細 ===== */
 
@@ -227,6 +255,13 @@ async function load(date: string) {
         selectedDate.value = dayData.date
         if (!etfCode.value || !etfData.etfs.some((e) => e.etf_code === etfCode.value)) {
             etfCode.value = etfData.etfs[0]?.etf_code ?? null
+        }
+        // 預設顯示規模最大、且有異動的那一檔；之後切換交易日時保留使用者的選擇
+        if (!changeEtf.value || !etfData.etfs.some((e) => e.etf_code === changeEtf.value)) {
+            const withChanges = new Set((dayData.etf_changes ?? []).map((row) => row.etf_code))
+            changeEtf.value = etfData.etfs.find((e) => withChanges.has(e.etf_code))?.etf_code
+                ?? etfData.etfs[0]?.etf_code
+                ?? null
         }
     } catch (err) {
         error.value = (err as Error).message
@@ -287,23 +322,6 @@ function dateLabel(item: DateItem): string {
                     </option>
                 </select>
             </label>
-
-            <div class="control">
-                <span class="control-label">法人別</span>
-                <div class="tabs" role="tablist">
-                    <button
-                        v-for="(label, key) in INVESTOR_LABELS"
-                        :key="key"
-                        type="button"
-                        class="tab"
-                        :class="{ 'is-active': investor === key }"
-                        role="tab"
-                        @click="investor = key as Investor"
-                    >
-                        {{ label }}
-                    </button>
-                </div>
-            </div>
         </div>
 
         <section class="panel">
@@ -425,28 +443,40 @@ function dateLabel(item: DateItem): string {
                 <h2>ETF 持股變動</h2>
                 <p class="panel-note">{{ changeNote }}</p>
             </div>
+            <div v-if="etfs.length" class="controls controls-inline">
+                <label class="control">
+                    <span class="control-label">ETF</span>
+                    <select v-model="changeEtf">
+                        <option v-for="item in etfs" :key="item.etf_code" :value="item.etf_code">
+                            {{ changeOptionLabel(item.etf_code, item.etf_name) }}
+                        </option>
+                    </select>
+                </label>
+            </div>
             <div class="table-wrap">
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>ETF</th><th>代號</th><th>個股</th><th>異動</th>
+                            <th>代號</th><th>個股</th><th>異動</th>
+                            <th class="num">前一日股數</th><th class="num">當日股數</th>
                             <th class="num">股數變動</th><th class="num">估算金額（億）</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr v-if="!changes.length" class="empty-row">
-                            <td colspan="6">無資料</td>
+                            <td colspan="7">無異動</td>
                         </tr>
                         <tr
-                            v-for="(row, i) in changes"
-                            :key="`${row.etf_code}-${row.stock_code}-${i}`"
+                            v-for="row in changes"
+                            :key="row.stock_code"
                         >
-                            <td>{{ row.etf_code }}</td>
                             <td>{{ row.stock_code }}</td>
                             <td>{{ row.stock_name ?? "" }}</td>
                             <td :class="row.share_change >= 0 ? 'val-buy' : 'val-sell'">
                                 {{ CHANGE_LABELS[row.change_type] ?? row.change_type }}
                             </td>
+                            <td class="num">{{ row.prev_shares.toLocaleString() }}</td>
+                            <td class="num">{{ row.shares.toLocaleString() }}</td>
                             <td class="num" :class="row.share_change >= 0 ? 'val-buy' : 'val-sell'">
                                 {{ (row.share_change > 0 ? "+" : "") + row.share_change.toLocaleString() }}
                             </td>
@@ -504,6 +534,25 @@ function dateLabel(item: DateItem): string {
             <div class="panel-head">
                 <h2>ETF 的法人買賣超</h2>
                 <p class="panel-note">{{ flowNote }}</p>
+            </div>
+            <!-- 法人別只影響這個區塊，其他區塊的資料來自投信揭露的持股，沒有法人之分 -->
+            <div class="controls controls-inline">
+                <div class="control">
+                    <span class="control-label">法人別</span>
+                    <div class="tabs" role="tablist">
+                        <button
+                            v-for="(label, key) in INVESTOR_LABELS"
+                            :key="key"
+                            type="button"
+                            class="tab"
+                            :class="{ 'is-active': investor === key }"
+                            role="tab"
+                            @click="investor = key as Investor"
+                        >
+                            {{ label }}
+                        </button>
+                    </div>
+                </div>
             </div>
             <div class="chart-scroll">
                 <BarChart
