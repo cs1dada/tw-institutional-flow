@@ -586,7 +586,7 @@ onUnmounted(() => {
             </div>
         </div>
 
-        <section class="panel">
+        <section class="panel" data-nav="大盤與期貨">
             <div class="panel-head">
                 <h2>大盤與期貨</h2>
                 <p class="panel-note">
@@ -668,7 +668,7 @@ onUnmounted(() => {
             <p v-if="data?.error" class="notice">來源訊息：{{ data.error }}</p>
         </section>
 
-        <section v-if="activeCode" class="panel">
+        <section v-if="activeCode" class="panel" data-nav="個股報價">
             <div class="panel-head panel-head-row">
                 <div>
                     <h2>

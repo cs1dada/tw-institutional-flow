@@ -355,7 +355,7 @@ function dateLabel(item: DateItem): string {
             </label>
         </div>
 
-        <section class="panel">
+        <section class="panel" data-nav="類股資金分布">
             <div class="panel-head panel-head-row">
                 <div>
                     <h2>{{ treemapTitle }}</h2>
@@ -378,7 +378,7 @@ function dateLabel(item: DateItem): string {
             />
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="資金流向排行">
             <div class="panel-head">
                 <h2>{{ rankingTitle }}</h2>
                 <p class="panel-note">{{ rankingNote }}</p>
@@ -393,7 +393,7 @@ function dateLabel(item: DateItem): string {
             />
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="類股細節">
             <div class="panel-head">
                 <h2>{{ selected ? `${selected}　類股細節` : "類股細節" }}</h2>
                 <p class="panel-note">於上方點選類股後顯示近 20 個交易日趨勢與個股明細</p>
@@ -431,7 +431,7 @@ function dateLabel(item: DateItem): string {
             </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="連續買賣超">
             <div class="panel-head">
                 <h2>連續買賣超類股</h2>
                 <p class="panel-note">
@@ -465,7 +465,7 @@ function dateLabel(item: DateItem): string {
             </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="個股買賣超排行">
             <div class="panel-head">
                 <h2>個股買賣超排行</h2>
                 <p class="panel-note">當日買超與賣超金額前 20 名（不含 ETF）</p>

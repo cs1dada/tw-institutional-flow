@@ -215,7 +215,7 @@ onMounted(async () => {
             </label>
         </div>
 
-        <section class="panel">
+        <section class="panel" data-nav="K 線圖">
             <div class="panel-head">
                 <h2>{{ payload?.name ?? "加權指數" }}{{ PERIOD_LABELS[period] }}</h2>
                 <p class="panel-note">{{ chartNote || "載入中" }}</p>
@@ -226,7 +226,7 @@ onMounted(async () => {
             </p>
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="近期行情">
             <div class="panel-head">
                 <h2>近期行情</h2>
                 <p class="panel-note">

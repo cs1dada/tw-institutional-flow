@@ -324,7 +324,7 @@ function dateLabel(item: DateItem): string {
             </label>
         </div>
 
-        <section class="panel">
+        <section class="panel" data-nav="經理人成本">
             <div class="panel-head">
                 <h2>經理人的成本在哪裡</h2>
                 <p class="panel-note">{{ costNote }}</p>
@@ -438,7 +438,7 @@ function dateLabel(item: DateItem): string {
             </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="持股變動">
             <div class="panel-head">
                 <h2>ETF 持股變動</h2>
                 <p class="panel-note">{{ changeNote }}</p>
@@ -489,7 +489,7 @@ function dateLabel(item: DateItem): string {
             </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="合計持股">
             <div class="panel-head">
                 <h2>ETF 合計持股</h2>
                 <p class="panel-note">{{ topNote }}</p>
@@ -530,7 +530,7 @@ function dateLabel(item: DateItem): string {
             </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="法人買賣超">
             <div class="panel-head">
                 <h2>ETF 的法人買賣超</h2>
                 <p class="panel-note">{{ flowNote }}</p>
@@ -566,7 +566,7 @@ function dateLabel(item: DateItem): string {
             </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="持股明細">
             <div class="panel-head">
                 <h2>已介接 ETF 持股明細</h2>
                 <p class="panel-note">{{ holdingNote || "各檔 ETF 的完整持股，依權重排序" }}</p>

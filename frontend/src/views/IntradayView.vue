@@ -331,7 +331,7 @@ onUnmounted(stopTimer)
             成交金額以現價乘上累積成交量估算，與真實成交值有誤差，用於比較類股之間的相對規模。
         </p>
 
-        <section class="panel">
+        <section class="panel" data-nav="即時指數">
             <div class="panel-head">
                 <h2>即時指數</h2>
                 <p class="panel-note">報價時間 {{ data?.quote_time || "--" }}</p>
@@ -359,7 +359,7 @@ onUnmounted(stopTimer)
             </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="類股資金分布">
             <div class="panel-head">
                 <h2>類股資金分布</h2>
                 <p class="panel-note">
@@ -376,7 +376,7 @@ onUnmounted(stopTimer)
             <p v-else class="notice">目前沒有可顯示的資料</p>
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="類股強弱">
             <div class="panel-head">
                 <h2>類股強弱</h2>
                 <p class="panel-note">依成交金額取前 {{ TOP_INDUSTRIES }} 個類股，長度為加權漲跌幅</p>
@@ -389,7 +389,7 @@ onUnmounted(stopTimer)
             />
         </section>
 
-        <section class="panel">
+        <section class="panel" data-nav="成交金額排行">
             <div class="panel-head">
                 <h2>成交金額排行</h2>
                 <p class="panel-note">

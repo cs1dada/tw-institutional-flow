@@ -364,7 +364,7 @@ onUnmounted(() => {
             本頁只在本機模式提供，線上的靜態站沒有這一頁。
         </p>
 
-        <section class="panel">
+        <section class="panel" data-nav="大盤與期貨">
             <div class="panel-head">
                 <h2>大盤與期貨</h2>
                 <p class="panel-note">
@@ -429,7 +429,7 @@ onUnmounted(() => {
             <p v-if="overview?.error" class="notice">來源訊息：{{ overview.error }}</p>
         </section>
 
-        <section v-if="activeCode" class="panel">
+        <section v-if="activeCode" class="panel" data-nav="個股報價">
             <div class="panel-head panel-head-row">
                 <div>
                     <h2>
