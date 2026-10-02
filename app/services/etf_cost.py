@@ -20,7 +20,7 @@
 from collections import defaultdict
 
 # 觀察期間的交易日數
-COST_DAYS = 60
+COST_DAYS = 180
 # 持股能對到台股行情的比例低於此值時，視為以海外股票為主的 ETF
 DOMESTIC_RATIO = 0.5
 # 台股單日漲跌幅限制，超過即可能是公司行動 (留一點緩衝給四捨五入)

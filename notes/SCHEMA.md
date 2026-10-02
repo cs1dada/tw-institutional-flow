@@ -405,7 +405,7 @@ inst_trade + stock_info ──依產業別加總──→ industry_daily (app/se
 - 相鄰兩個快照的股數差，就是當日的買賣股數
 - 成交價以當日 VWAP 推估：`daily_price.turnover ÷ daily_price.volume`
 - 第一個快照之前就持有的股數，以當日 `daily_price.close` 作為成本
-- 觀察期間最多 60 個交易日，起點受限於 `etf_holding` 最早的日期
+- 觀察期間最多 180 個交易日 (`COST_DAYS`)，起點受限於 `etf_holding` 最早的日期
 
 **`etf_cost.json`**：摘要
 
