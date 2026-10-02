@@ -35,14 +35,17 @@ def write_json(path, payload):
     return path.stat().st_size
 
 
-def check_not_shrinking(target_dates, force):
+def check_not_shrinking(target_dates, days, force):
     """避免以較少的資料覆蓋既有輸出。
 
     線上資料由 GitHub Actions 維護，其資料庫與本機各自獨立且通常較完整。
     若在本機匯出後推送，會讓線上的交易日數倒退，且不易察覺。
+
+    超出匯出天數的舊檔不會刪除，既有檔案數可能多於匯出天數，
+    因此只要本次已達匯出天數就不算倒退。
     """
     existing = sorted(path.stem for path in (DATA_DIR / "day").glob("*.json"))
-    if not existing or len(target_dates) >= len(existing):
+    if not existing or len(target_dates) >= min(len(existing), days):
         return True
     print(f"既有輸出有 {len(existing)} 個交易日（{existing[0]} ~ {existing[-1]}），")
     print(f"本次只會產生 {len(target_dates)} 個（{target_dates[-1]} ~ {target_dates[0]}）。")
@@ -89,7 +92,7 @@ def main():
         meta["dates"] = [item for item in meta["dates"] if item["date"] in set(target_dates)]
         meta["exported_days"] = len(target_dates)
 
-        if not check_not_shrinking(target_dates, force):
+        if not check_not_shrinking(target_dates, days, force):
             return
 
         total = write_json(DATA_DIR / "meta.json", meta)
