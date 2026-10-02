@@ -41,14 +41,16 @@ jobs:
           restore-keys: |
             stock-db-
 
-      # 回補天數須涵蓋 export_static.py 匯出的 60 個交易日，否則匯出保護會擋下更新。
-      # 100 個日曆日約 68 個交易日，遇到春節等長假仍足夠。
+      # 重建時只回補 100 個日曆日 (約 68 個交易日)，在 job 的 30 分鐘內可完成，
+      # 但少於 export_static.py 匯出的天數，因此這次匯出要加 --force，
+      # 否則匯出保護會擋下更新。更早的資料之後再以 backfill.yml 補回。
       - name: 快取不存在時建立資料庫並回補
         run: |
           if [ ! -f data/stock.db ]; then
             echo "找不到資料庫快取，重新建立並回補最近 100 天"
             python scripts/init_db.py
             python scripts/backfill.py 100
+            echo "EXPORT_ARGS=--force" >> "$GITHUB_ENV"
           else
             echo "已還原資料庫快取"
             python -c "
@@ -68,7 +70,7 @@ jobs:
         continue-on-error: true
 
       - name: 匯出靜態網站
-        run: python scripts/export_static.py
+        run: python scripts/export_static.py $EXPORT_ARGS
 
       - name: 提交並推送
         run: |

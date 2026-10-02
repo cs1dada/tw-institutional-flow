@@ -227,7 +227,7 @@ Shioaji 是需要登入的 Python SDK，連線由後端持有，服務關閉時�
 ### 匯出靜態網站
 
 ```bash
-python scripts/export_static.py        # 預設匯出最近 60 個交易日
+python scripts/export_static.py        # 預設匯出最近 300 個交易日
 python scripts/export_static.py 30     # 只匯出最近 30 個交易日
 ```
 
@@ -511,7 +511,7 @@ B 檔是 09-09，直接比對會讓 A 檔的所有持股都被誤判為「新進
 #### 經理人的成本在哪裡
 
 方法整理自 [notes/ETF_STRATEGY.md](notes/ETF_STRATEGY.md) 第一節，計算在 `app/services/etf_cost.py`。
-以近 60 個交易日、以台股為主的 ETF 為範圍，點選個股會顯示三層疊圖：
+以近 180 個交易日、以台股為主的 ETF 為範圍，點選個股會顯示三層疊圖：
 
 | 層 | 內容 |
 |----|------|

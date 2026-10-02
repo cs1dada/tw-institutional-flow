@@ -402,10 +402,10 @@ def build_index(conn, index_code=config.INDEX_TAIEX, days=INDEX_DAYS):
     }
 
 
-def build_meta(conn):
-    """日期清單與基本資訊。"""
+def build_meta(conn, limit=120):
+    """日期清單與基本資訊。limit 為日期清單的天數上限，靜態匯出時依匯出天數放寬。"""
     return {
-        "dates": list_dates(conn),
+        "dates": list_dates(conn, limit),
         "supported_etfs": etf.supported_etfs(),
         "latest_date": latest_date(conn),
         # 作為其他資料檔的版本號，資料更新後可立即讓訪客取得新內容，

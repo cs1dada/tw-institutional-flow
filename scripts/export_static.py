@@ -26,8 +26,9 @@ from app.services import dataset, etf_cost
 
 DOCS_DIR = config.BASE_DIR / "docs"
 DATA_DIR = DOCS_DIR / "data"
-# 預設匯出的交易日數，避免 repo 無限膨脹
-DEFAULT_DAYS = 60
+# 預設匯出的交易日數，避免 repo 無限膨脹。
+# 300 個交易日約一年兩個月，每檔約 200 KB，合計約 60 MB
+DEFAULT_DAYS = 300
 def write_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -86,7 +87,7 @@ def main():
 
     conn = connect()
     try:
-        meta = dataset.build_meta(conn)
+        meta = dataset.build_meta(conn, limit=days)
         target_dates = [item["date"] for item in meta["dates"][:days]]
         # meta 只保留實際匯出的日期，避免前端選到沒有檔案的日子
         meta["dates"] = [item for item in meta["dates"] if item["date"] in set(target_dates)]

@@ -337,7 +337,7 @@ inst_trade + stock_info ──依產業別加總──→ industry_daily (app/se
 
 ### day/{日期}.json：每日類股資金流向
 
-每個交易日一個檔案，只匯出最近 60 個交易日。
+每個交易日一個檔案，只匯出最近 300 個交易日 (`export_static.py` 的 `DEFAULT_DAYS`)。
 
 **`industries`**：各類股合計，對應 `industry_daily` 當日的資料
 
