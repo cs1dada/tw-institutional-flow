@@ -6,6 +6,10 @@
 資料庫使用 WAL 模式，`data/` 下的 `stock.db-wal` 與 `stock.db-shm` 是同一組檔案，
 複製或備份時要三個一起帶走。
 
+線上網站用的是 GitHub Actions 快取裡的另一份資料庫，結構相同 (兩邊都由 `init_schema()` 建立)，
+但資料涵蓋範圍不同，兩者不同步。詳見 [ARCHITECTURE.md](ARCHITECTURE.md)。
+線上網站讀的 JSON 與資料表的對應見文末「[靜態匯出 JSON 與資料表的對應](#靜態匯出-json-與資料表的對應)」。
+
 ---
 
 ## 共通約定
@@ -266,7 +270,7 @@ LIMIT 60;
 | `inst_trade`、`industry_daily` | `backfill.py` 回補了多久 |
 | `index_daily` | `ingest_index.py` 回補了幾個月 |
 | `future_daily` | `backfill_futures.py` 回補了多久，以及該商品的上市日 |
-| `etf_holding`、`etf_snapshot` | 開始每日抓取的那天，無法回補 |
+| `etf_holding`、`etf_snapshot` | `backfill_etf.py` 回補了多久、各投信保留的期限 (例如中信只保留近期)，以及該 ETF 的上市日 |
 
 要查目前的實際範圍：
 
@@ -283,6 +287,162 @@ UNION ALL SELECT 'etf_holding', MIN(date), MAX(date), COUNT(*) FROM etf_holding;
 SELECT MIN(date), MAX(date), COUNT(DISTINCT date)
 FROM daily_price WHERE open IS NOT NULL;
 ```
+
+---
+
+## 靜態匯出 JSON 與資料表的對應
+
+線上網站 (GitHub Pages) 不能查資料庫，改讀 `scripts/export_static.py` 匯出到 `docs/data/` 的 JSON。
+本機的 `/api` 端點呼叫同一組函式，回傳的格式與這些 JSON 完全相同。
+
+### 總覽
+
+| JSON | 用在網站哪裡 | 讀取的資料表 | 產生函式 |
+|------|-------------|-------------|---------|
+| `meta.json` | 日期選單、ETF 清單 | `industry_daily`、`ingest_log` | `dataset.build_meta` |
+| `day/{日期}.json` | 類股資金流向頁 (主畫面) | `industry_daily`、`inst_trade`、`stock_info`、`etf_holding`、`daily_price` | `dataset.build_day` |
+| `history.json` | 類股趨勢圖 | `industry_daily` | `dataset.build_history` |
+| `etf.json` | 主動式 ETF 頁的持股 | `etf_snapshot`、`etf_holding`、`daily_price`、`stock_info` | `dataset.build_etf` |
+| `etf_cost.json` | 經理人成本表 | `etf_holding`、`daily_price`、`stock_info` | `etf_cost.compute` |
+| `etf_cost/{代號}.json` | 點選個股後的成本疊圖 | 同上 | `etf_cost.compute` |
+| `index.json` | 大盤指數 K 線頁 | `index_daily` | `dataset.build_index` |
+
+`dataset` 指 `app/services/dataset.py`，`etf_cost` 指 `app/services/etf_cost.py`。
+
+### 資料表之間的關係
+
+```
+證交所 / 櫃買 ──→ inst_trade   個股買賣超股數，金額 = 股數 × 收盤價
+              └─→ daily_price  個股開高低收、成交量、成交金額
+ISIN 對照表 ───→ stock_info   名稱、市場、產業別
+
+inst_trade + stock_info ──依產業別加總──→ industry_daily (app/services/aggregate.py)
+
+各投信 ───────→ etf_holding   每日持股明細
+              └─→ etf_snapshot 淨值、規模
+證交所 ───────→ index_daily   大盤指數
+```
+
+### meta.json：日期清單
+
+| JSON 欄位 | 來源 | 說明 |
+|------|------|------|
+| `dates[].date` | `industry_daily.date` (避免重複) | 有資料的交易日，新到舊，只列出本次匯出的日期 |
+| `dates[].markets` | `ingest_log.market` (`status = 'ok'`) | 當日收錄到哪些市場 |
+| `dates[].complete` | 由 `markets` 算出 | 兩個市場都有才算齊全 |
+| `latest_date` | `MAX(industry_daily.date)` | 最新交易日 |
+| `supported_etfs` | 程式設定 (`app/fetchers/etf`)，不讀資料庫 | 已介接的 ETF 代號 |
+| `generated_at` | 匯出當下的時間 | 其他 JSON 的版本號，用來繞過 GitHub Pages 的快取 |
+| `exported_days` | `export_static.py` 加上 | 本次匯出的交易日數 (預設 60) |
+
+### day/{日期}.json：每日類股資金流向
+
+每個交易日一個檔案，只匯出最近 60 個交易日。
+
+**`industries`**：各類股合計，對應 `industry_daily` 當日的資料
+
+| JSON 欄位 | 資料表欄位 |
+|------|------|
+| `industry` | `industry_daily.industry` |
+| `total_amt`、`foreign_amt`、`trust_amt`、`dealer_amt` | 同名欄位，四捨五入到元 |
+| `buy_count`、`sell_count`、`stock_count` | 同名欄位 |
+
+**`stocks`**：當日全部個股，以陣列輸出，欄位順序寫在 `stock_fields`
+
+| 陣列欄位 | 資料表欄位 |
+|------|------|
+| `code` | `inst_trade.code` |
+| `name`、`market`、`industry`、`is_etf` | `stock_info` 同名欄位 (以代號 JOIN) |
+| `close` | `inst_trade.close` |
+| `total_amt`、`foreign_amt`、`trust_amt`、`dealer_amt` | `inst_trade` 同名欄位，四捨五入到元 |
+
+**`streak`**：連續買賣超，由 `industry_daily` 往回看 10 天 (`streak_days`) 算出，
+四種法人別各一組，不含 ETF 類別
+
+| JSON 欄位 | 說明 |
+|------|------|
+| `industry` | 類股 |
+| `direction` | `buy` 買超或 `sell` 賣超 |
+| `streak_days` | 連續同方向的天數 |
+| `total_amt` | 這段期間的累計金額 |
+
+**`etf_changes`**：每檔 ETF 截至當日的最新快照與前一個快照的差異
+
+| JSON 欄位 | 來源 |
+|------|------|
+| `etf_code`、`date`、`prev_date` | `etf_holding` 的本次與前次快照日 |
+| `stock_code`、`stock_name` | `etf_holding` |
+| `shares`、`prev_shares` | 本次與前次的 `etf_holding.shares` |
+| `share_change` | 兩者相減 |
+| `value_change` | `share_change` × 本次快照日的 `daily_price.close` |
+| `change_type` | `new` 新增、`removed` 出清、`changed` 增減 |
+
+### history.json：類股趨勢
+
+最近 60 個交易日的 `industry_daily`，依類股分組，前端只畫最近 20 天。
+
+```
+{ "dates": [...], "industries": { "半導體業": [{ date, total_amt, foreign_amt, trust_amt, dealer_amt }] } }
+```
+
+### etf.json：主動式 ETF 持股
+
+各檔 ETF 一律取**自己的**最新快照，各投信的持股基準日不一定相同。
+
+| JSON 區塊 | 來源 | 內容 |
+|------|------|------|
+| `etfs` | `etf_snapshot` + `stock_info.name` | 淨值 `nav`、規模 `aum`、單位數 `units`、持股檔數 `holding_count`、投信 `issuer` |
+| `holdings` | `etf_holding` + `daily_price.close` | 每檔 ETF 的持股、股數、權重與快照日收盤價 |
+| `top_stocks` | `etf_holding` 依個股加總 + `daily_price` + `stock_info` | 市值最大的 30 檔：持有的 ETF 數、合計股數、市值 (股數 × 收盤價) |
+| `changes` | 同 day 檔的 `etf_changes` | 各 ETF 最新一次的持股變動 |
+| `dates` | `etf_snapshot.date` | 各 ETF 的最新快照日 |
+
+### etf_cost.json 與 etf_cost/{代號}.json：經理人成本
+
+這兩個檔案**不是直接讀出的欄位**，而是由 `etf_holding` (每日持股) 與 `daily_price` (行情)
+推算而來，只計算以台股為主的 ETF。
+
+- 相鄰兩個快照的股數差，就是當日的買賣股數
+- 成交價以當日 VWAP 推估：`daily_price.turnover ÷ daily_price.volume`
+- 第一個快照之前就持有的股數，以當日 `daily_price.close` 作為成本
+- 觀察期間最多 60 個交易日，起點受限於 `etf_holding` 最早的日期
+
+**`etf_cost.json`**：摘要
+
+| JSON 欄位 | 說明 |
+|------|------|
+| `date`、`start`、`days` | 觀察期間 |
+| `etfs` | 參與計算的 ETF |
+| `daily` | 每日全體 ETF 的買進、賣出金額合計 |
+| `items` | 每檔個股一筆：持有家數 `holders`、買進家數 `buyers`、買賣金額、目前成本 `cost`、等權共識價 `equal`、資金加權共識價 `weighted`、共識價帶 `band`；名稱與產業別取自 `stock_info` |
+
+**`etf_cost/{代號}.json`**：個股疊圖，點選個股時才下載
+
+| JSON 欄位 | 說明 |
+|------|------|
+| `dates`、`close` | 期間內每日的日期與收盤價 |
+| `cost_lines` | 每檔 ETF 每日的持倉成本，一檔 ETF 一條線 |
+| `overall_cost` | 全體 ETF 合計的成本 |
+| `trades` | 每筆買賣：日期、ETF、股數、推估價格 (欄位順序寫在 `trade_fields`) |
+| `events` | 偵測到的分割、減資等公司行動 |
+| `consensus` | 各家買進均價與共識價 |
+
+### index.json：大盤指數
+
+`index_daily` 中 `index_code = 'TAIEX'` 最近 2500 個交易日，以陣列輸出，欄位順序寫在 `fields`：
+`date`、`open`、`high`、`low`、`close`、`turnover`、`change`。
+
+`turnover` 在匯出時換算為**億元**並保留兩位小數，是唯一不以元為單位的金額。
+週線與月線由前端從日線聚合，不另外輸出。
+
+### 沒有匯出到線上的資料
+
+| 資料表 / 欄位 | 用途 | 未匯出的原因 |
+|------|------|------|
+| `daily_price.open`、`high`、`low` | 個股 K 線 (`/api/history/{code}`) | 只有本機的報價頁使用 |
+| `future_daily` | 期貨 K 線 | 只有本機的報價頁使用 |
+| `inst_trade` 的股數欄位 (`*_net`) | 原始買賣超股數 | 網站只呈現金額 |
+| `ingest_log` 的其他欄位 | 匯入狀態，判斷要不要重抓 | 匯出時只用來標示各日收錄的市場 |
 
 ---
 
