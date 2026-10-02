@@ -41,12 +41,14 @@ jobs:
           restore-keys: |
             stock-db-
 
+      # 回補天數須涵蓋 export_static.py 匯出的 60 個交易日，否則匯出保護會擋下更新。
+      # 100 個日曆日約 68 個交易日，遇到春節等長假仍足夠。
       - name: 快取不存在時建立資料庫並回補
         run: |
           if [ ! -f data/stock.db ]; then
-            echo "找不到資料庫快取，重新建立並回補最近 45 天"
+            echo "找不到資料庫快取，重新建立並回補最近 100 天"
             python scripts/init_db.py
-            python scripts/backfill.py 45
+            python scripts/backfill.py 100
           else
             echo "已還原資料庫快取"
             python -c "
