@@ -79,5 +79,7 @@ jobs:
             echo "資料無變動，略過提交"
           else
             git commit -m "chore: 自動更新資料 $(TZ=Asia/Taipei date +%Y-%m-%d)"
+            # 執行期間遠端可能有新的 commit (例如本機推送)，先 rebase 再推送
+            git pull --rebase
             git push
           fi
