@@ -254,7 +254,7 @@ app/
     index_quote.py           大盤指數日線 (以月為單位抓取)
     intraday.py              盤中即時報價 (MIS)，只有本機模式會用到
     fugle.py / sinotrade.py  富果、永豐 API
-    etf/                     各投信的主動式 ETF 持股 (野村、統一、群益、安聯、中信)
+    etf/                     各投信的主動式 ETF 持股，一家投信一個模組 (共 13 家)
   services/
     ingest.py                匯入單日資料、類股聚合
     aggregate.py             類股聚合邏輯

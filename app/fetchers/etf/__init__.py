@@ -21,18 +21,42 @@
 
 新增投信時，實作一個模組並在 ISSUERS 註冊，再把旗下 ETF 代號加入 ETF_ISSUER。
 """
-from app.fetchers.etf import allianz, capital, ctbc, nomura, uni
+from app.fetchers.etf import (
+    allianz,
+    capital,
+    cathay,
+    ctbc,
+    fhtrust,
+    fsitc,
+    fubon,
+    kgi,
+    mega,
+    nomura,
+    sinopac,
+    taishin,
+    uni,
+)
 
 # 投信代號對應的抓取模組
 ISSUERS = {
     "allianz": allianz,
     "capital": capital,
+    "cathay": cathay,
     "ctbc": ctbc,
+    "fhtrust": fhtrust,
+    "fsitc": fsitc,
+    "fubon": fubon,
+    "kgi": kgi,
+    "mega": mega,
     "nomura": nomura,
+    "sinopac": sinopac,
+    "taishin": taishin,
     "uni": uni,
 }
 
-# ETF 代號對應的投信。目前只收錄已完成介接的投信
+# ETF 代號對應的投信。目前只收錄已完成介接的投信。
+# 後來介接的投信只收以台股為主的 ETF，海外持股的基準日跟著海外市場，不納入；
+# 摩根的使用條款明文禁止爬蟲、聯博的 API 以 robots.txt 全面拒絕，因此不介接
 ETF_ISSUER = {
     # 野村
     "00980A": "nomura",
@@ -55,6 +79,23 @@ ETF_ISSUER = {
     "00402A": "allianz",
     "00984A": "allianz",
     "00993A": "allianz",
+    # 國泰
+    "00400A": "cathay",
+    # 富邦
+    "00405A": "fubon",
+    # 凱基
+    "00407A": "kgi",
+    # 第一金
+    "00408A": "fsitc",
+    "00994A": "fsitc",
+    # 永豐
+    "00410A": "sinopac",
+    # 台新
+    "00987A": "taishin",
+    # 復華
+    "00991A": "fhtrust",
+    # 兆豐
+    "00996A": "mega",
 }
 
 
