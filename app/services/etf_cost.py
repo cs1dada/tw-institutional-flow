@@ -29,7 +29,7 @@ PRICE_LIMIT = 0.105
 SPLIT_THRESHOLD = 0.2
 
 
-def _domestic_etfs(conn):
+def domestic_etfs(conn):
     """以台股為主的主動式 ETF。"""
     rows = conn.execute(
         """
@@ -44,7 +44,7 @@ def _domestic_etfs(conn):
     return sorted(r["etf_code"] for r in rows if r["total"] and r["matched"] / r["total"] >= DOMESTIC_RATIO)
 
 
-def _etf_names(conn, codes):
+def etf_names(conn, codes):
     marks = ",".join("?" * len(codes))
     rows = conn.execute(f"SELECT code, name FROM stock_info WHERE code IN ({marks})", codes)
     names = {r["code"]: r["name"] for r in rows}
@@ -66,7 +66,7 @@ def _round(value, digits=2):
     return None if value is None else round(value, digits)
 
 
-def _load(conn, etf_codes):
+def load_snapshots(conn, etf_codes):
     """讀出計算所需的持股與行情。
 
     回傳 (all_dates, holdings, prices, names, events)：
@@ -235,10 +235,10 @@ def compute(conn, days=COST_DAYS):
     回傳 (summary, details)，details 以股票代號為鍵，供個股疊圖使用。
     尚無持股資料時回傳 (None, {})。
     """
-    etf_codes = _domestic_etfs(conn)
+    etf_codes = domestic_etfs(conn)
     if not etf_codes:
         return None, {}
-    all_dates, holdings, prices, names, events = _load(conn, etf_codes)
+    all_dates, holdings, prices, names, events = load_snapshots(conn, etf_codes)
     last = max(max(dates) for dates in holdings.values())
     all_dates = [d for d in all_dates if d <= last]
     window = all_dates[-days:]
@@ -248,7 +248,7 @@ def compute(conn, days=COST_DAYS):
         r["code"]: (r["name"], r["industry"])
         for r in conn.execute("SELECT code, name, industry FROM stock_info")
     }
-    etf_names = _etf_names(conn, etf_codes)
+    names_of_etf = etf_names(conn, etf_codes)
 
     by_stock = defaultdict(list)
     for (stock, etf_code), series in positions.items():
@@ -326,7 +326,7 @@ def compute(conn, days=COST_DAYS):
         "date": last,
         "start": window[0],
         "days": len(window),
-        "etfs": [{"etf_code": e, "etf_name": etf_names[e]} for e in etf_codes],
+        "etfs": [{"etf_code": e, "etf_name": names_of_etf[e]} for e in etf_codes],
         "daily": [
             {"date": d, "buy_amt": round(daily[d][0]), "sell_amt": round(daily[d][1])} for d in window
         ],

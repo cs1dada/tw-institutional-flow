@@ -548,3 +548,73 @@ export interface EtfCostDetail {
         band: [number, number]
     } | null
 }
+
+/** ETF 每日榜單：單一 ETF 對某檔股票的當日變動 */
+export interface EtfDailyTrade {
+    etf_code: string
+    /** 股數變化，正為買進 */
+    shares: number
+    /** 以當日 VWAP 推估的金額，正為買進 */
+    amount: number
+    type: "new" | "add" | "reduce" | "removed"
+}
+
+/** 被買最兇 / 被賣最重的一列 */
+export interface EtfDailySideRow {
+    code: string
+    name: string | null
+    industry: string | null
+    close: number | null
+    vwap: number | null
+    /** 出手的 ETF 檔數 */
+    etf_count: number
+    /** 其中新進 (或出清) 的檔數 */
+    new_count: number
+    shares: number
+    amount: number
+    /** 同一天反方向的檔數與金額，用來看分歧 */
+    opposite_count: number
+    opposite_amount: number
+    /** 全市場外資、投信買賣超張數 */
+    foreign_lots: number | null
+    trust_lots: number | null
+    etfs: EtfDailyTrade[]
+}
+
+/** 最擁擠的一列 */
+export interface EtfDailyCrowdedRow {
+    code: string
+    name: string | null
+    industry: string | null
+    close: number | null
+    holders: number
+    /** 前一個交易日的持有檔數 */
+    prev_holders: number
+    shares: number
+    market_value: number | null
+    foreign_lots: number | null
+    trust_lots: number | null
+    etfs: string[]
+}
+
+export interface EtfDailyData {
+    date: string
+    etfs: { etf_code: string; etf_name: string | null; reported: boolean; prev_date: string | null }[]
+    buy_amt: number
+    sell_amt: number
+    buys: EtfDailySideRow[]
+    sells: EtfDailySideRow[]
+    crowded: EtfDailyCrowdedRow[]
+}
+
+export interface EtfDailyDateItem {
+    date: string
+    /** 當日已公布、可比對的 ETF 檔數 */
+    reported: number
+    /** 當日已上市的 ETF 檔數 */
+    listed: number
+}
+
+export interface EtfDailyDates {
+    dates: EtfDailyDateItem[]
+}

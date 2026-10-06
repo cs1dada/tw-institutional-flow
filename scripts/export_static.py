@@ -22,7 +22,7 @@ _bootstrap.setup_logging()
 
 from app import config
 from app.db import connect
-from app.services import dataset, etf_cost
+from app.services import dataset, etf_cost, etf_daily
 
 DOCS_DIR = config.BASE_DIR / "docs"
 DATA_DIR = DOCS_DIR / "data"
@@ -79,6 +79,23 @@ def export_etf_cost(conn):
     print(f"etf_cost/*.json  {len(details)} 檔，共 {detail_bytes / 1024 / 1024:.2f} MB")
 
 
+def export_etf_daily(conn, days):
+    """ETF 每日榜單：日期清單一個檔，每個揭露日一個檔。
+
+    與交易日資料一樣只保留最近 days 天，整批重建以免留下過期的檔案。
+    """
+    dates, payloads = etf_daily.build_all(conn, limit=days)
+    if not payloads:
+        return
+    size = write_json(DATA_DIR / "etf_daily.json", dates)
+    print(f"etf_daily.json  {size / 1024:.1f} KB")
+
+    day_dir = DATA_DIR / "etf_daily"
+    if day_dir.exists():
+        shutil.rmtree(day_dir)
+    day_bytes = sum(write_json(day_dir / f"{date}.json", payload) for date, payload in payloads.items())
+    print(f"etf_daily/*.json  {len(payloads)} 檔，共 {day_bytes / 1024 / 1024:.2f} MB")
+
 def main():
     args = [a for a in sys.argv[1:] if a != "--force"]
     force = "--force" in sys.argv
@@ -117,6 +134,7 @@ def main():
         print(f"index.json  {size / 1024:.1f} KB")
 
         export_etf_cost(conn)
+        export_etf_daily(conn, days)
     finally:
         conn.close()
 

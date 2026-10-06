@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app import config
 from app.db import connect
-from app.services import dataset, etf_cost, history, intraday
+from app.services import dataset, etf_cost, etf_daily, history, intraday
 
 router = APIRouter(prefix="/api")
 
@@ -457,6 +457,29 @@ def api_etf_cost():
         conn.close()
     if payload is None:
         raise HTTPException(status_code=404, detail="尚無持股資料，請先執行 ingest_etf.py")
+    return payload
+
+
+@router.get("/etf-daily")
+def api_etf_daily_dates():
+    """主動式 ETF 每日榜單可查詢的日期與各日已公布的檔數。"""
+    conn = connect()
+    try:
+        return etf_daily.build_dates(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/etf-daily/{date}")
+def api_etf_daily(date: str):
+    """單日的被買最兇、被賣最重、最擁擠三張榜單。"""
+    conn = connect()
+    try:
+        payload = etf_daily.build_day(conn, date)
+    finally:
+        conn.close()
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"{date} 沒有可比對的 ETF 持股快照")
     return payload
 
 

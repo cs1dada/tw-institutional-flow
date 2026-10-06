@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from "vue-router"
 
+import DailyView from "@/views/DailyView.vue"
 import IndexChartView from "@/views/IndexChartView.vue"
 import IndustryFlowView from "@/views/IndustryFlowView.vue"
 import IntradayView from "@/views/IntradayView.vue"
@@ -16,6 +17,7 @@ export const router = createRouter({
     routes: [
         { path: "/", component: IndustryFlowView },
         { path: "/etf", component: EtfView },
+        { path: "/daily", component: DailyView },
         { path: "/intraday", component: IntradayView },
         { path: "/quote", component: QuoteView },
         { path: "/sino", component: SinoQuoteView },
