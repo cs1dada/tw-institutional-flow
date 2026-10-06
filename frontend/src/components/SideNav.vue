@@ -32,7 +32,7 @@ const ITEMS: NavItem[] = [
     { to: "/daily", label: "ETF 每日榜單", desc: "被買最兇、被賣最重、最擁擠" },
     { to: "/intraday", label: "盤中觀察", desc: "類股即時強弱", apiOnly: true },
     { to: "/quote", label: "即時行情", desc: "富果：微台、大盤與個股", quoteOnly: true },
-    { to: "/sino", label: "永豐行情", desc: "Shioaji：微台、大盤與個股", sinoOnly: true },
+    { to: "/sino", label: "永豐行情", desc: "Shioaji：大台、大盤與個股", sinoOnly: true },
     { to: "/index", label: "大盤指數", desc: "加權指數 K 線" },
 ]
 

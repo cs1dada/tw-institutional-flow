@@ -438,14 +438,31 @@ export interface SinoCandle {
     volume: number
 }
 
+/** 訂閱中的期貨某一個交易時段的分時 */
+export interface SinoSession {
+    kind: "day" | "night"
+    label: string
+    start: string
+    end: string
+    candles: SinoCandle[]
+}
+
 export interface SinoQuoteData {
     future: SinoSnapshot | null
+    /** 常駐期貨的名稱，由後端設定決定 */
+    future_name: string
     index: SinoSnapshot | null
     stock: SinoSnapshot | null
     stock_name: string | null
     /** 期現價差：期貨減現貨，正值為正價差 */
     basis: number | null
     candles: SinoCandle[]
+    /** 常駐期貨是否由逐筆成交即時更新；false 時為 10 秒一次的快照 */
+    future_streaming: boolean
+    /** 選定的是訂閱中的期貨時，最近的日盤與夜盤，依時間先後排列 */
+    sessions: SinoSession[] | null
+    /** 目前所在的時段，作為預設顯示 */
+    current_session: "day" | "night" | null
     updated_at: string
     stale: boolean
     error: string | null

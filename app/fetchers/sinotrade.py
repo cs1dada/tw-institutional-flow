@@ -21,6 +21,7 @@ import threading
 import time
 
 from app import config
+from app.db import connect
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +31,14 @@ _contracts = {}
 
 # 行情查詢的送出時間，用於滑動視窗節流
 _queries = []
-# kbars 的每日計數：{"date": 日期, "count": 次數}
-_kbar_usage = {"date": None, "count": 0}
-# 歷史日線的每日計數。一次要拉一整年的 1 分 K，成本與當日分時差一個數量級，
-# 因此與 _kbar_usage 分開計算
-_history_usage = {"date": None, "count": 0}
+# 每日查詢次數存在資料庫的 sino_usage，服務重啟後不會歸零。
+# kbar 為當日分時；history 為歷史日線，一次要拉一整年的 1 分 K，
+# 成本與當日分時差一個數量級，因此分開計算
+USAGE_KBAR = "kbar"
+USAGE_HISTORY = "history"
+_usage_lock = threading.Lock()
+# 目前已訂閱逐筆成交的代碼
+_subscribed = set()
 
 
 class QuotaExceeded(RuntimeError):
@@ -61,30 +65,54 @@ def _reserve(kind="quote"):
     _queries.append(now)
 
 
+def _used_today(kind, conn=None):
+    """今日某類查詢已用的次數。"""
+    own = conn is None
+    conn = conn or connect()
+    try:
+        row = conn.execute(
+            "SELECT count FROM sino_usage WHERE date = ? AND kind = ?",
+            (dt.date.today().strftime("%Y%m%d"), kind),
+        ).fetchone()
+        return row[0] if row else 0
+    finally:
+        if own:
+            conn.close()
+
+
+def _reserve_daily(kind, limit, label):
+    """取得一次每日額度，已達上限時拋出 QuotaExceeded。
+
+    先檢查再加一，兩步驟以鎖保護，避免同時兩個請求都通過檢查。
+    """
+    today = dt.date.today().strftime("%Y%m%d")
+    with _usage_lock:
+        conn = connect()
+        try:
+            if _used_today(kind, conn) >= limit:
+                raise QuotaExceeded(f"今日{label}已達自訂上限 {limit} 次")
+            conn.execute(
+                """
+                INSERT INTO sino_usage (date, kind, count, updated_at)
+                VALUES (?, ?, 1, ?)
+                ON CONFLICT(date, kind) DO UPDATE SET
+                    count = count + 1, updated_at = excluded.updated_at
+                """,
+                (today, kind, dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
 def _reserve_kbar():
     """kbars 另有每日次數上限，與流量無關，用完就不能再查。"""
-    today = dt.date.today()
-    if _kbar_usage["date"] != today:
-        _kbar_usage["date"] = today
-        _kbar_usage["count"] = 0
-    if _kbar_usage["count"] >= config.SINO_KBAR_DAILY_LIMIT:
-        raise QuotaExceeded(
-            f"今日 K 線查詢已達自訂上限 {config.SINO_KBAR_DAILY_LIMIT} 次"
-        )
-    _kbar_usage["count"] += 1
+    _reserve_daily(USAGE_KBAR, config.SINO_KBAR_DAILY_LIMIT, " K 線查詢")
 
 
 def _reserve_history():
     """歷史日線的每日次數上限，用來擋住流量而不是次數。"""
-    today = dt.date.today()
-    if _history_usage["date"] != today:
-        _history_usage["date"] = today
-        _history_usage["count"] = 0
-    if _history_usage["count"] >= config.SINO_HISTORY_DAILY_LIMIT:
-        raise QuotaExceeded(
-            f"今日歷史 K 線查詢已達自訂上限 {config.SINO_HISTORY_DAILY_LIMIT} 次"
-        )
-    _history_usage["count"] += 1
+    _reserve_daily(USAGE_HISTORY, config.SINO_HISTORY_DAILY_LIMIT, "歷史 K 線查詢")
 
 
 def get_api():
@@ -110,9 +138,64 @@ def get_api():
         return _api
 
 
+def subscribe_future_ticks(codes, on_tick):
+    """訂閱期貨的逐筆成交，每筆成交以 on_tick(dict) 推送。
+
+    callback 在 Shioaji 自己的執行緒上執行，呼叫端要自行處理同步。
+    只訂閱 Tick 不訂 BidAsk：五檔的推送量約為成交的十幾倍，這裡用不到。
+    """
+    import shioaji as sj
+
+    api = get_api()
+
+    def handler(exchange, tick):
+        try:
+            on_tick(
+                {
+                    # 推送的是實際合約代碼 (例如 TXFJ6)，不是訂閱用的連續合約代碼
+                    "contract": tick.code,
+                    "datetime": tick.datetime,
+                    "price": _to_float(tick.close),
+                    "volume": _to_float(tick.volume) or 0,
+                    "total_volume": _to_float(tick.total_volume),
+                    "open": _to_float(tick.open),
+                    "high": _to_float(tick.high),
+                    "low": _to_float(tick.low),
+                    "change": _to_float(tick.price_chg),
+                    "pct": _to_float(tick.pct_chg),
+                    # 開盤前的試撮不是真正的成交
+                    "simtrade": bool(tick.simtrade),
+                }
+            )
+        except Exception as exc:
+            logger.warning("處理逐筆成交失敗：%s", exc)
+
+    api.set_on_tick_fop_v1_callback(handler)
+    for code in codes:
+        api.subscribe(get_contract(code), quote_type=sj.QuoteType.Tick, version=sj.QuoteVersion.v1)
+        _subscribed.add(code)
+        logger.info("Shioaji 已訂閱 %s 逐筆成交", code)
+
+
+def unsubscribe_all():
+    """退訂所有已訂閱的商品，登出前呼叫。"""
+    import shioaji as sj
+
+    if _api is None:
+        return
+    for code in list(_subscribed):
+        try:
+            _api.unsubscribe(get_contract(code), quote_type=sj.QuoteType.Tick, version=sj.QuoteVersion.v1)
+            logger.info("Shioaji 已退訂 %s", code)
+        except Exception as exc:
+            logger.warning("Shioaji 退訂 %s 失敗：%s", code, exc)
+        _subscribed.discard(code)
+
+
 def logout():
     """服務關閉時釋放連線，避免佔用 5 個連線額度。"""
     global _api
+    unsubscribe_all()
     with _lock:
         if _api is None:
             return
@@ -147,7 +230,8 @@ def get_contract(code):
     contract = None
 
     if code == config.SHIOAJI_FUTURE_CODE:
-        contract = api.Contracts.Futures.TMF[code]
+        # 連續合約代碼的前三碼即商品類別，例如 TXFR1 屬於 TXF
+        contract = getattr(api.Contracts.Futures, code[:3])[code]
     elif code.startswith("IX") or code.startswith("IR"):
         contract = _index_contract(api, code)
     else:
@@ -248,6 +332,32 @@ def fetch_kbars(code):
     ]
 
 
+def fetch_kbars_between(code, start, end):
+    """一段日期區間的 1 分 K，保留完整的日期時間。
+
+    期貨夜盤跨過午夜，只用「今天」查會漏掉前半段，因此由呼叫端指定區間，
+    再依完整時間篩出要的交易時段。時間為該分鐘結束的時刻，與 fetch_kbars 相同。
+    """
+    _reserve_kbar()
+    _reserve()
+    api = get_api()
+    raw = api.kbars(get_contract(code), start=start.isoformat(), end=end.isoformat())
+    data = {**raw}
+
+    stamps = data.get("ts") or []
+    closes = data.get("Close") or []
+    volumes = data.get("Volume") or []
+    return [
+        {
+            # ts 已是台北時間的數值表示，以 UTC 解讀後去掉時區
+            "datetime": dt.datetime.fromtimestamp(stamps[i] / 1e9, dt.timezone.utc).replace(tzinfo=None),
+            "close": closes[i],
+            "volume": volumes[i],
+        }
+        for i in range(len(stamps))
+    ]
+
+
 def fetch_usage():
     """查詢流量用量。屬於帳務查詢，不佔行情查詢的次數額度。"""
     api = get_api()
@@ -261,11 +371,9 @@ def fetch_usage():
         "limit_mb": round(usage.limit_bytes / 1048576),
         "percent": round(usage.bytes / usage.limit_bytes * 100, 2) if usage.limit_bytes else 0,
         # 這一頁自己的 K 線用量，與官方的流量分開看
-        "kbar_used": _kbar_usage["count"] if _kbar_usage["date"] == dt.date.today() else 0,
+        "kbar_used": _used_today(USAGE_KBAR),
         "kbar_limit": config.SINO_KBAR_DAILY_LIMIT,
-        "history_used": (
-            _history_usage["count"] if _history_usage["date"] == dt.date.today() else 0
-        ),
+        "history_used": _used_today(USAGE_HISTORY),
         "history_limit": config.SINO_HISTORY_DAILY_LIMIT,
     }
 

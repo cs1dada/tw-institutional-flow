@@ -24,7 +24,7 @@ def _require_enabled():
 
 @router.get("/quote")
 def sino_quote_view(code: str = Query("", max_length=20), force: bool = Query(False)):
-    """微台、加權指數與指定個股，一次批次查詢取回。"""
+    """大台、加權指數與指定個股，一次批次查詢取回。"""
     _require_enabled()
     try:
         return sino_quote.build_quote(code or None, force=force)

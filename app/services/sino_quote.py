@@ -1,6 +1,6 @@
 """永豐 Shioaji 即時行情的組裝與快取。
 
-與富果那一頁的結構相同，差別在於資料全部來自 Shioaji，而且微台、
+與富果那一頁的結構相同，差別在於資料全部來自 Shioaji，而且大台、
 加權指數與個股可以**合併成一次批次查詢** —— Shioaji 的 snapshots
 接受多個合約，一次呼叫只算一次額度，實測 50 檔只要 0.05 秒、9 KB。
 
@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 from app import config
 from app.fetchers import sinotrade
+from app.services import sino_stream
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +35,58 @@ def _now_text():
 
 
 def build_quote(code=None, force=False):
-    """微台、加權指數與 (可選的) 個股，一次批次查詢取回。
+    """大台、加權指數與 (可選的) 個股的報價與分時。
+
+    快照每 SINO_QUOTE_CACHE_SECONDS 秒才真的查一次；訂閱中的期貨則每次呼叫
+    都套上最新的逐筆成交，前端可以比快照更頻繁地來問，不會多耗永豐的額度。
+    """
+    code = (code or "").strip().upper() or None
+    return _with_stream(_build_snapshot_quote(code, force), code)
+
+
+def _with_stream(payload, code):
+    """以逐筆成交覆蓋期貨卡片的價格，選定的是期貨時也換上串流組成的分時。
+
+    串流中斷或尚未啟動時原樣回傳，畫面就是快照的版本。
+    """
+    payload = dict(payload)
+    future = payload.get("future")
+    view = sino_stream.get_view(future["code"]) if future else None
+    if view and view["last"]:
+        tick = view["last"]
+        future = dict(future)
+        for field in ("price", "change", "pct", "open", "high", "low"):
+            if tick.get(field) is not None:
+                future[field] = tick[field]
+        if tick.get("total_volume") is not None:
+            future["volume"] = tick["total_volume"]
+        future["time"] = tick["datetime"].strftime("%H:%M:%S")
+        payload["future"] = future
+        index = payload.get("index")
+        if index and index.get("price") and future.get("price"):
+            payload["basis"] = round(future["price"] - index["price"], 2)
+    payload["future_streaming"] = view is not None
+
+    payload["sessions"] = None
+    payload["current_session"] = None
+    if code and sino_stream.is_streamed(code):
+        selected = view if future and code == future["code"] else sino_stream.get_view(code)
+        if selected:
+            # 日盤與夜盤各一段，前端切換或接成全日；candles 仍給目前時段，維持既有欄位的意義
+            payload["sessions"] = selected["sessions"]
+            payload["current_session"] = selected["current"]
+            current = next(item for item in selected["sessions"] if item["kind"] == selected["current"])
+            payload["candles"] = current["candles"]
+            if payload.get("stock") and future and code == future["code"]:
+                payload["stock"] = future
+    return payload
+
+
+def _build_snapshot_quote(code, force):
+    """快照的版本：大台、加權指數與個股一次批次查詢取回。
 
     個股代碼變動時一定要重新查，否則會拿到上一檔的快取。
     """
-    code = (code or "").strip().upper() or None
 
     with _lock:
         same_target = _cache["code"] == code
@@ -46,7 +94,7 @@ def build_quote(code=None, force=False):
             return _cache["payload"]
 
         codes = [config.SHIOAJI_FUTURE_CODE, config.SHIOAJI_INDEX_CODE]
-        # 點上方常駐卡片時，選定的就是微台或指數本身，不必再送一次
+        # 點上方常駐卡片時，選定的就是大台或指數本身，不必再送一次
         if code and code not in codes:
             codes.append(code)
 
@@ -73,17 +121,23 @@ def build_quote(code=None, force=False):
 
         payload = {
             "future": future,
+            "future_name": config.SHIOAJI_FUTURE_NAME,
             "index": index,
             "stock": stock,
             "stock_name": _stock_name(code) if code else None,
             "basis": basis,
-            "candles": _build_kbars(code, stock) if code else [],
+            # 訂閱中的期貨由串流提供分時，不必消耗 K 線額度；串流中斷時才退回快照
+            "candles": _build_kbars(code, stock) if code and not _stream_ready(code) else [],
             "updated_at": _now_text(),
             "stale": False,
             "error": None,
         }
         _cache.update({"payload": payload, "fetched_at": time.time(), "code": code})
         return payload
+
+
+def _stream_ready(code):
+    return sino_stream.is_streamed(code) and sino_stream.get_view(code) is not None
 
 
 def _stock_name(code):

@@ -3,7 +3,7 @@
  * 永豐即時行情。
  *
  * 與富果那一頁看的是同一批標的，差別在於資料全部來自永豐 Shioaji，
- * 而且微台、加權指數與個股是**一次批次查詢**取回的 —— Shioaji 的
+ * 而且大台、加權指數與個股是**一次批次查詢**取回的 —— Shioaji 的
  * snapshots 接受多個合約，一次呼叫只算一次額度。
  *
  * Shioaji 是需要登入的 SDK，金鑰不可能放進前端，必須由後端持有連線，
@@ -38,11 +38,23 @@ import {
 } from "@/utils/indexBars"
 import { baseTooltip, buyColor, colors, sellColor } from "@/utils/theme"
 
-/** 與後端快取時間一致，再短也只會拿到同一份快取 */
-const INTERVAL = 10000
+/**
+ * 前端輪詢間隔。快照在後端快取 10 秒，再短也只會拿到同一份；
+ * 但訂閱中的期貨每次都會套上最新的逐筆成交，因此這裡比快照頻繁，
+ * 問的是本機後端，不消耗永豐的查詢額度
+ */
+const INTERVAL = 2000
 /** 用量變化很慢，不需要跟報價一樣頻繁 */
 const USAGE_INTERVAL = 60000
 const SEARCH_DELAY = 250
+
+/** 訂閱中的期貨，分時可切換日盤、夜盤，或把最近兩段依時間接起來 */
+type SessionView = "day" | "night" | "all"
+const SESSION_TABS: { key: SessionView; label: string }[] = [
+    { key: "day", label: "日盤" },
+    { key: "night", label: "夜盤" },
+    { key: "all", label: "全日" },
+]
 
 /** 走勢圖的週期。當日為分時，其餘為 K 線 */
 const PERIOD_TABS: { key: SinoPeriod; label: string }[] = [
@@ -81,6 +93,8 @@ const suggestions = ref<SinoSearchItem[]>([])
 const activeCode = ref("")
 
 const period = ref<SinoPeriod>("intraday")
+/** 使用者選的時段；null 代表跟著目前所在的時段 */
+const sessionChoice = ref<SessionView | null>(null)
 const history = ref<StockHistory | null>(null)
 const historyMonths = ref(0)
 const historyLoading = ref(false)
@@ -293,6 +307,7 @@ watch(period, (value) => {
 
 function select(item: SinoSearchItem) {
     activeCode.value = item.code
+    sessionChoice.value = null
     keyword.value = ""
     suggestions.value = []
     // 換一檔就得重新拉歷史，舊的不能沿用
@@ -309,7 +324,7 @@ function select(item: SinoSearchItem) {
 /**
  * 從上方的常駐卡片帶入下方明細。
  *
- * 微台與加權指數的即時報價本來就在每一輪的批次查詢裡，點下去只是把它
+ * 大台與加權指數的即時報價本來就在每一輪的批次查詢裡，點下去只是把它
  * 展開成完整的明細與走勢，不會多送任何一次行情查詢。
  */
 function selectCard(code: string | undefined) {
@@ -386,8 +401,41 @@ function fixed(value: number | null | undefined, digits = 2): string {
     return value === null || value === undefined ? "--" : value.toFixed(digits)
 }
 
+const sessions = computed(() => data.value?.sessions ?? null)
+
+const sessionView = computed<SessionView>(
+    () => sessionChoice.value ?? data.value?.current_session ?? "day",
+)
+
+/**
+ * 走勢圖實際要畫的分時。
+ *
+ * 一般個股就是 candles；訂閱中的期貨依選定的時段取出，「全日」把最近兩段
+ * 依時間接起來，並記下接縫的位置畫分隔線。中間的休市不留空白。
+ */
+const intraday = computed(() => {
+    const all = sessions.value
+    if (!all) {
+        return { candles: data.value?.candles ?? [], separator: null, session: null }
+    }
+    if (sessionView.value === "all") {
+        const filled = all.filter((item) => item.candles.length)
+        const later = filled.length > 1 ? filled[filled.length - 1] : null
+        return {
+            candles: filled.flatMap((item) => item.candles),
+            separator: later
+                ? { index: filled[0].candles.length, label: `${later.label} ${later.start.slice(11)}` }
+                : null,
+            session: null,
+        }
+    }
+    const one = all.find((item) => item.kind === sessionView.value) ?? null
+    return { candles: one?.candles ?? [], separator: null, session: one }
+})
+
 const trendOption = computed(() => {
-    const candles = data.value?.candles ?? []
+    const candles = intraday.value.candles
+    const separator = intraday.value.separator
     const quote = stock.value
     const c = colors()
     const first = candles.length ? candles[0].close : null
@@ -445,6 +493,18 @@ const trendOption = computed(() => {
                 showSymbol: false,
                 lineStyle: { width: 2, color: up ? buyColor() : sellColor() },
                 itemStyle: { color: up ? buyColor() : sellColor() },
+                // 全日時標出夜盤與日盤的接縫。圖表每 2 秒更新一次，
+                // 不關掉動畫的話分隔線每次都會重新長出來，看起來一直在跳
+                markLine: separator
+                    ? {
+                        silent: true,
+                        animation: false,
+                        symbol: "none",
+                        lineStyle: { color: c.muted, type: "dashed", width: 1 },
+                        label: { formatter: separator.label, color: c.secondary, fontSize: 11 },
+                        data: [{ xAxis: candles[separator.index]?.time }],
+                    }
+                    : undefined,
             },
             {
                 name: "成交量",
@@ -488,7 +548,15 @@ const candleOption = computed(() => {
 const chartNote = computed(() => {
     const current = period.value
     if (current === "intraday") {
-        return `一分 K，共 ${data.value?.candles.length ?? 0} 根`
+        const count = intraday.value.candles.length
+        if (!sessions.value) {
+            return `一分 K，共 ${count} 根`
+        }
+        const session = intraday.value.session
+        const range = session
+            ? `${session.label}（${session.start} ~ ${session.end}）`
+            : "全日：最近的兩個時段依時間接起來，虛線為接縫"
+        return `${range}，一分 K 共 ${count} 根，逐筆成交即時更新`
     }
     const ma = PERIOD_MA[current].map((size) => `MA${size}`).join("、")
     const source = history.value?.source === "db" ? "盤後資料庫" : "Shioaji"
@@ -554,8 +622,8 @@ onUnmounted(() => {
         </div>
 
         <p class="notice">
-            資料來自永豐 Shioaji，微台、加權指數與個股是一次批次查詢取回的。
-            點下方「大盤與期貨」的微台或加權指數卡片，可展開它的明細與走勢。
+            資料來自永豐 Shioaji，大台、加權指數與個股是一次批次查詢取回的。
+            點下方「大盤與期貨」的大台或加權指數卡片，可展開它的明細與走勢。
             Shioaji 的快照只提供最佳一檔，沒有完整五檔 (五檔需要另外訂閱串流)，
             但多了量比與均價。本頁只在本機模式提供。
         </p>
@@ -590,7 +658,9 @@ onUnmounted(() => {
             <div class="panel-head">
                 <h2>大盤與期貨</h2>
                 <p class="panel-note">
-                    微台報價時間 {{ future?.time || "--" }}　指數 {{ index?.time || "--" }}
+                    大台報價時間 {{ future?.time || "--" }}
+                    （{{ data?.future_streaming ? "逐筆成交即時更新" : "快照，每 10 秒" }}）
+                    　指數 {{ index?.time || "--" }}
                 </p>
             </div>
             <div class="quote-grid">
@@ -605,7 +675,7 @@ onUnmounted(() => {
                     @keydown.space.prevent="selectCard(future.code)"
                 >
                     <div class="quote-name">
-                        微型臺指期
+                        {{ data?.future_name || "臺股期貨" }}
                         <span class="quote-code">{{ future.code }}</span>
                     </div>
                     <div class="quote-value" :style="{ color: tone(future.change) }">
@@ -660,7 +730,7 @@ onUnmounted(() => {
                     <div class="quote-change" :style="{ color: tone(data.basis) }">
                         {{ basisLabel }}
                     </div>
-                    <div class="quote-meta">微台減加權指數</div>
+                    <div class="quote-meta">大台減加權指數</div>
                 </div>
 
                 <p v-if="!future && !index" class="quote-meta">目前沒有報價</p>
@@ -739,18 +809,33 @@ onUnmounted(() => {
                         <h3 class="sub-head">走勢</h3>
                         <p class="panel-note">{{ chartNote }}</p>
                     </div>
-                    <div class="tabs" role="tablist">
-                        <button
-                            v-for="tab in PERIOD_TABS"
-                            :key="tab.key"
-                            type="button"
-                            class="tab"
-                            :class="{ 'is-active': period === tab.key }"
-                            role="tab"
-                            @click="period = tab.key"
-                        >
-                            {{ tab.label }}
-                        </button>
+                    <div class="chart-tabs">
+                        <div v-if="sessions && period === 'intraday'" class="tabs" role="tablist">
+                            <button
+                                v-for="tab in SESSION_TABS"
+                                :key="tab.key"
+                                type="button"
+                                class="tab"
+                                :class="{ 'is-active': sessionView === tab.key }"
+                                role="tab"
+                                @click="sessionChoice = tab.key"
+                            >
+                                {{ tab.label }}
+                            </button>
+                        </div>
+                        <div class="tabs" role="tablist">
+                            <button
+                                v-for="tab in PERIOD_TABS"
+                                :key="tab.key"
+                                type="button"
+                                class="tab"
+                                :class="{ 'is-active': period === tab.key }"
+                                role="tab"
+                                @click="period = tab.key"
+                            >
+                                {{ tab.label }}
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -791,7 +876,7 @@ onUnmounted(() => {
 
                 <template v-if="period === 'intraday'">
                     <VChart
-                        v-if="data?.candles.length"
+                        v-if="intraday.candles.length"
                         class="chart"
                         :option="trendOption"
                         autoresize
@@ -1010,6 +1095,12 @@ onUnmounted(() => {
 }
 
 /* 標題與週期切換同一列，窄螢幕改為上下堆疊 */
+.chart-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 .chart-head {
     display: flex;
     flex-wrap: wrap;

@@ -164,7 +164,8 @@ SHIOAJI_SIMULATION = True
 
 # 商品代碼
 SHIOAJI_INDEX_CODE = "IX0001"      # 發行量加權股價指數
-SHIOAJI_FUTURE_CODE = "TMFR1"      # 微型臺指期貨「近月」連續合約，不需自行換約
+SHIOAJI_FUTURE_CODE = "TXFR1"      # 臺股期貨 (大台)「近月」連續合約，不需自行換約
+SHIOAJI_FUTURE_NAME = "臺股期貨"
 
 # 使用限制 (https://sinotrade.github.io/zh/tutor/limit/)
 #
@@ -193,6 +194,17 @@ SINO_QUOTE_CACHE_SECONDS = 10
 # 的那一根，只在間隔到了才重抓完整版做校正。這樣一檔一天只要十次上下，
 # 分時圖也能跟報價一樣即時。
 SINO_KBAR_REFRESH_SECONDS = 1800
+
+# 逐筆成交訂閱 (見 app/services/sino_stream.py)。
+#
+# 只訂閱固定的期貨，訂一次用到服務關閉，不隨切換個股訂閱、退訂。
+# 個股與指數仍走快照：指數本身約每 5 秒才計算一次，訂閱也快不了多少。
+# 清單留空即關閉訂閱，全部退回快照。
+SINO_STREAM_CODES = ["TXFR1"]
+# 交易時段內超過這麼久沒收到成交，視為串流中斷，退回快照並嘗試重新訂閱
+SINO_STREAM_STALE_SECONDS = 60
+# 訂閱失敗或中斷後，重試的最短間隔
+SINO_STREAM_RETRY_SECONDS = 300
 SINO_KBAR_DAILY_LIMIT = 200
 
 # 個股歷史日線 (K 線圖用)。

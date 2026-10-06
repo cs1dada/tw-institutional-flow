@@ -132,6 +132,16 @@ CREATE TABLE IF NOT EXISTS ingest_log (
     updated_at      TEXT NOT NULL,
     PRIMARY KEY (date, market)
 );
+
+-- 永豐 Shioaji 的每日查詢次數。存在資料庫而非記憶體，服務重啟後仍延續當日的計數，
+-- 才不會因為重啟歸零而超過官方的每日上限
+CREATE TABLE IF NOT EXISTS sino_usage (
+    date            TEXT NOT NULL,
+    kind            TEXT NOT NULL,     -- kbar (當日分時) / history (歷史日線)
+    count           INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (date, kind)
+);
 """
 
 
