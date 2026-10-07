@@ -509,6 +509,16 @@ h2 {
         display: flex;
         gap: 8px;
         width: 100%;
+        /* 頁籤變多時改為橫向捲動，不再平均擠壓成直排文字 */
+        overflow-x: auto;
+    }
+
+    .nav-label {
+        white-space: nowrap;
+    }
+
+    .nav-desc {
+        display: none;
     }
 
     .sidebar-brand {
@@ -520,8 +530,7 @@ h2 {
     }
 
     .nav-group {
-        flex: 1;
-        min-width: 0;
+        flex: 0 0 auto;
     }
 
     /* 窄螢幕改為只留主頁籤，區塊捷徑會佔掉太多版面 */

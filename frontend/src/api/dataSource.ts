@@ -13,6 +13,8 @@ import type {
     EtfCostSummary,
     EtfDailyData,
     EtfDailyDates,
+    EtfReportData,
+    EtfReportDates,
     EtfData,
     HistoryData,
     IndexPayload,
@@ -46,6 +48,8 @@ const SOURCES = {
         etfCostDetail: (code: string) => versioned(`data/etf_cost/${code}.json`),
         etfDailyDates: () => versioned("data/etf_daily.json"),
         etfDaily: (date: string) => versioned(`data/etf_daily/${date}.json`),
+        etfReportDates: () => versioned("data/etf_report.json"),
+        etfReport: (date: string) => versioned(`data/etf_report/${date}.json`),
     },
     api: {
         meta: () => "/api/meta",
@@ -57,6 +61,8 @@ const SOURCES = {
         etfCostDetail: (code: string) => `/api/etf-cost/${code}`,
         etfDailyDates: () => "/api/etf-daily",
         etfDaily: (date: string) => `/api/etf-daily/${date}`,
+        etfReportDates: () => "/api/etf-report",
+        etfReport: (date: string) => `/api/etf-report/${date}`,
     },
 } as const
 
@@ -87,6 +93,8 @@ const cache: {
     etfCostDetails: Map<string, EtfCostDetail>
     etfDailyDates: EtfDailyDates | null
     etfDaily: Map<string, EtfDailyData>
+    etfReportDates: EtfReportDates | null
+    etfReport: Map<string, EtfReportData>
 } = {
     meta: null,
     days: new Map(),
@@ -97,6 +105,8 @@ const cache: {
     etfCostDetails: new Map(),
     etfDailyDates: null,
     etfDaily: new Map(),
+    etfReportDates: null,
+    etfReport: new Map(),
 }
 
 export async function loadMeta(): Promise<Meta> {
@@ -208,5 +218,31 @@ export async function loadEtfDaily(date: string): Promise<EtfDailyData> {
     }
     const data = await fetchJson<EtfDailyData>(SOURCES[MODE].etfDaily(date))
     cache.etfDaily.set(date, data)
+    return data
+}
+
+export async function loadEtfReportDates(): Promise<EtfReportDates> {
+    if (cache.etfReportDates) {
+        return cache.etfReportDates
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<EtfReportDates>(SOURCES[MODE].etfReportDates())
+    cache.etfReportDates = data
+    return data
+}
+
+/** ETF 日報，切換日期時才下載 */
+export async function loadEtfReport(date: string): Promise<EtfReportData> {
+    const cached = cache.etfReport.get(date)
+    if (cached) {
+        return cached
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<EtfReportData>(SOURCES[MODE].etfReport(date))
+    cache.etfReport.set(date, data)
     return data
 }

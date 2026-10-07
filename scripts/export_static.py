@@ -22,13 +22,15 @@ _bootstrap.setup_logging()
 
 from app import config
 from app.db import connect
-from app.services import dataset, etf_cost, etf_daily
+from app.services import dataset, etf_cost, etf_daily, etf_report
 
 DOCS_DIR = config.BASE_DIR / "docs"
 DATA_DIR = DOCS_DIR / "data"
 # 預設匯出的交易日數，避免 repo 無限膨脹。
 # 300 個交易日約一年兩個月，每檔約 200 KB，合計約 60 MB
 DEFAULT_DAYS = 300
+# ETF 日報每天約 50 KB，只保留最近 120 個揭露日 (約半年)，合計約 6 MB
+REPORT_DAYS = 120
 def write_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -96,6 +98,22 @@ def export_etf_daily(conn, days):
     day_bytes = sum(write_json(day_dir / f"{date}.json", payload) for date, payload in payloads.items())
     print(f"etf_daily/*.json  {len(payloads)} 檔，共 {day_bytes / 1024 / 1024:.2f} MB")
 
+
+def export_etf_report(conn, days):
+    """ETF 日報：日期清單一個檔，每個揭露日一個檔，整批重建。"""
+    dates, payloads = etf_report.build_all(conn, limit=days)
+    if not payloads:
+        return
+    size = write_json(DATA_DIR / "etf_report.json", dates)
+    print(f"etf_report.json  {size / 1024:.1f} KB")
+
+    day_dir = DATA_DIR / "etf_report"
+    if day_dir.exists():
+        shutil.rmtree(day_dir)
+    day_bytes = sum(write_json(day_dir / f"{date}.json", payload) for date, payload in payloads.items())
+    print(f"etf_report/*.json  {len(payloads)} 檔，共 {day_bytes / 1024 / 1024:.2f} MB")
+
+
 def main():
     args = [a for a in sys.argv[1:] if a != "--force"]
     force = "--force" in sys.argv
@@ -135,6 +153,7 @@ def main():
 
         export_etf_cost(conn)
         export_etf_daily(conn, days)
+        export_etf_report(conn, min(days, REPORT_DAYS))
     finally:
         conn.close()
 

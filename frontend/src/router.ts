@@ -5,6 +5,7 @@ import IndexChartView from "@/views/IndexChartView.vue"
 import IndustryFlowView from "@/views/IndustryFlowView.vue"
 import IntradayView from "@/views/IntradayView.vue"
 import QuoteView from "@/views/QuoteView.vue"
+import ReportView from "@/views/ReportView.vue"
 import SinoQuoteView from "@/views/SinoQuoteView.vue"
 import EtfView from "@/views/EtfView.vue"
 
@@ -18,6 +19,7 @@ export const router = createRouter({
         { path: "/", component: IndustryFlowView },
         { path: "/etf", component: EtfView },
         { path: "/daily", component: DailyView },
+        { path: "/reports", component: ReportView },
         { path: "/intraday", component: IntradayView },
         { path: "/quote", component: QuoteView },
         { path: "/sino", component: SinoQuoteView },

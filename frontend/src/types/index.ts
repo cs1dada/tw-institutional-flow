@@ -635,3 +635,109 @@ export interface EtfDailyDateItem {
 export interface EtfDailyDates {
     dates: EtfDailyDateItem[]
 }
+
+/* ===== ETF 日報 ===== */
+
+/** 日報中的個股列，金額單位為億元，賣出為負數 */
+export interface EtfReportStockRow {
+    code: string
+    name: string | null
+    industry: string | null
+    buy_count: number
+    buy_amt: number
+    sell_count: number
+    sell_amt: number
+    net_amt: number
+    buy_etfs: string[]
+    sell_etfs: string[]
+    /** 共識升溫或退潮：前一個揭露日的加碼家數與差異 */
+    prev_buy_count?: number
+    diff?: number
+    /** 訊號分級 */
+    grade?: EtfReportGrade
+}
+
+export type EtfReportGrade = "broad" | "concentrated" | "quiet" | "sync_sell" | "heavy_sell"
+
+export interface EtfReportStockRef {
+    code: string
+    name: string | null
+    industry: string | null
+}
+
+export interface EtfReportIndustryRow {
+    industry: string
+    buy_amt: number
+    sell_amt: number
+    net_amt: number
+    stock_count: number
+    leaders: (EtfReportStockRef & { net_amt: number })[]
+}
+
+/** 新進或清倉的一筆 */
+export interface EtfReportPositionRow extends EtfReportStockRef {
+    etf_code: string
+    lots: number
+    amt: number
+}
+
+export interface EtfReportAccuracyRow {
+    etf_code: string
+    etf_name: string | null
+    buy_amt: number
+    return_pct: number
+    stock_count: number
+    top_stocks: (EtfReportStockRef & { amt: number })[]
+}
+
+/** 校正前或校正後的一組統計 */
+export interface EtfReportMode {
+    buy_amt: number
+    sell_amt: number
+    net_amt: number
+    top_buys: EtfReportStockRow[]
+    top_sells: EtfReportStockRow[]
+    consensus_buys: EtfReportStockRow[]
+    consensus_sells: EtfReportStockRow[]
+    industries: EtfReportIndustryRow[]
+    warming: EtfReportStockRow[]
+    cooling: EtfReportStockRow[]
+    new_positions: EtfReportPositionRow[]
+    new_count: number
+    exits: EtfReportPositionRow[]
+    exit_count: number
+    signals: EtfReportStockRow[]
+    accuracy: { days: number; from: string; items: EtfReportAccuracyRow[] }
+}
+
+export interface EtfReportEtf {
+    etf_code: string
+    etf_name: string | null
+    reported: boolean
+    prev_date: string | null
+    unit_change_pct?: number | null
+    /** 持股整批同比例變動的倍率，1 表示沒有被動買賣 */
+    passive_factor?: number
+    raw_net_amt?: number
+    active_net_amt?: number
+    passive_amt?: number
+}
+
+export interface EtfReportData {
+    date: string
+    prev_date: string | null
+    thresholds: { big_amount_yi: number; consensus_count: number; accuracy_days: number }
+    grades: Record<EtfReportGrade, string>
+    etfs: EtfReportEtf[]
+    modes: { adjusted: EtfReportMode; raw: EtfReportMode }
+    /** 深度解讀的 Markdown 原文 */
+    note: string | null
+}
+
+export interface EtfReportDateItem extends EtfDailyDateItem {
+    has_note: boolean
+}
+
+export interface EtfReportDates {
+    dates: EtfReportDateItem[]
+}

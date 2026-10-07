@@ -19,6 +19,7 @@
 
 本機 API 與靜態匯出共用這裡的函式，兩種模式的格式一致。
 """
+import statistics
 from collections import defaultdict
 
 from app.services import etf_cost
@@ -26,6 +27,12 @@ from app.services import etf_cost
 # 各榜單保留的名次
 RANK_LIMIT = 30
 SHARES_PER_LOT = 1000
+# 被動倍率：持股整批同比例變動超過這個比例，才視為申購贖回造成的被動買賣
+PASSIVE_MIN_MOVE = 0.01
+# 推算被動倍率至少需要的共同持股檔數
+PASSIVE_MIN_STOCKS = 5
+# 扣除被動買賣後，變動小於前日股數的這個比例 (或不足一張) 視為零股與四捨五入的誤差
+PASSIVE_NOISE_RATIO = 0.01
 
 
 def _round(value, digits=2):
@@ -78,6 +85,11 @@ class _Context:
         last = max(dates[-1] for dates in self.snap_dates.values())
         self.trade_dates = [d for d in all_dates if d <= last]
         self.prev_trade = {d: p for p, d in zip(self.trade_dates, self.trade_dates[1:])}
+        self.units = {
+            (r["etf_code"], r["date"]): r["units"]
+            for r in conn.execute("SELECT etf_code, date, units FROM etf_snapshot WHERE units > 0")
+        }
+        self._trade_cache = {}
 
     def available_dates(self):
         """至少一檔 ETF 當日有快照、且有前一個快照可比對的交易日，由新到舊。"""
@@ -105,6 +117,72 @@ class _Context:
                 result[etf] = max(d for d in dates if d < date)
         return result
 
+    def passive_factor(self, etf, date, prev_date):
+        """申購贖回造成的被動倍率，沒有整批同比例變動時為 1。
+
+        實測發行單位數變動的當天，持股多半沒有同步變動 (申購多以現金交付，
+        經理人之後才分批買進)，直接以單位數倍率扣除會把所有持股算成減碼。
+        因此改以共同持股的股數倍率中位數判斷：持股真的整批同比例變動時，
+        這個倍率就是被動買賣的部分，其餘才是經理人的主動調整。
+        """
+        current = self.holdings[etf][date]
+        previous = self.holdings[etf][prev_date]
+        ratios = [
+            current[stock] / shares
+            for stock, shares in previous.items()
+            if shares > 0 and current.get(stock, 0) > 0
+        ]
+        if len(ratios) < PASSIVE_MIN_STOCKS:
+            return 1.0
+        factor = statistics.median(ratios)
+        return factor if abs(factor - 1) >= PASSIVE_MIN_MOVE else 1.0
+
+    def unit_change(self, etf, date, prev_date):
+        """發行單位數的變化比例，缺資料時為 None。"""
+        before, after = self.units.get((etf, prev_date)), self.units.get((etf, date))
+        return after / before - 1 if before and after else None
+
+    def trades(self, date, adjusted=False):
+        """當日各股的加減碼 {stock: [(etf, shares, amount, kind)]} 與各 ETF 的被動倍率。
+
+        adjusted 為 True 時扣除申購贖回造成的被動買賣，只留下經理人的主動調整。
+        新進與出清不受影響：前日沒有持股就沒有被動部分，歸零則必然是主動賣出。
+        """
+        key = (date, adjusted)
+        if key in self._trade_cache:
+            return self._trade_cache[key]
+        trades = defaultdict(list)
+        factors = {}
+        for etf, prev_date in self._reported(date).items():
+            current = self.holdings[etf][date]
+            previous = self.holdings[etf][prev_date]
+            factor = self.passive_factor(etf, date, prev_date) if adjusted else 1.0
+            factors[etf] = factor
+            for stock in set(current) | set(previous):
+                before = previous.get(stock, 0)
+                after = current.get(stock, 0)
+                if before <= 0 or after <= 0:
+                    delta = after - before
+                else:
+                    delta = after - before * factor
+                # 還原後的股數可能帶小數，不足一股的差異視為沒有變動
+                if abs(delta) < 1:
+                    continue
+                if factor != 1.0 and before > 0 and after > 0:
+                    if abs(delta) < max(SHARES_PER_LOT, before * factor * PASSIVE_NOISE_RATIO):
+                        continue
+                if before <= 0:
+                    kind = "new"
+                elif after <= 0:
+                    kind = "removed"
+                else:
+                    kind = "add" if delta > 0 else "reduce"
+                price = self.prices.get((stock, date))
+                amount = delta * price[0] if price else 0.0
+                trades[stock].append((etf, delta, amount, kind))
+        self._trade_cache[key] = (trades, factors)
+        return trades, factors
+
     def _holding_map(self, date):
         """各 ETF 截至 date 最新快照的持股 {stock: {etf: shares}}。"""
         result = defaultdict(dict)
@@ -131,27 +209,7 @@ class _Context:
         if not reported:
             return None
 
-        # stock -> [(etf, shares, amount, type)]
-        trades = defaultdict(list)
-        for etf, prev_date in reported.items():
-            current = self.holdings[etf][date]
-            previous = self.holdings[etf][prev_date]
-            for stock in set(current) | set(previous):
-                before = previous.get(stock, 0)
-                after = current.get(stock, 0)
-                delta = after - before
-                # 還原後的股數可能帶小數，不足一股的差異視為沒有變動
-                if abs(delta) < 1:
-                    continue
-                if before <= 0:
-                    kind = "new"
-                elif after <= 0:
-                    kind = "removed"
-                else:
-                    kind = "add" if delta > 0 else "reduce"
-                price = self.prices.get((stock, date))
-                amount = delta * price[0] if price else 0.0
-                trades[stock].append((etf, delta, amount, kind))
+        trades, _ = self.trades(date)
 
         flows = _inst_flows(self.conn, date)
 
@@ -166,7 +224,8 @@ class _Context:
                 "close": _round(price[1]) if price else None,
                 "vwap": _round(price[0]) if price else None,
                 "etf_count": len(rows),
-                "new_count": sum(1 for r in rows if r[3] == "new"),
+                # 買方只會有新進與加碼，賣方只會有出清與減碼，兩者合併計算即可
+                "new_count": sum(1 for r in rows if r[3] in ("new", "removed")),
                 "shares": round(sum(r[1] for r in rows)),
                 "amount": round(sum(r[2] for r in rows)),
                 "opposite_count": len(opposite),
