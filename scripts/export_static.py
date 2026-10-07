@@ -128,8 +128,9 @@ def main():
         meta["dates"] = [item for item in meta["dates"] if item["date"] in set(target_dates)]
         meta["exported_days"] = len(target_dates)
 
+        # 被擋下時以非零結束，GitHub Actions 才會標示失敗，不會誤以為已經更新
         if not check_not_shrinking(target_dates, days, force):
-            return
+            sys.exit(1)
 
         total = write_json(DATA_DIR / "meta.json", meta)
         print(f"meta.json  {total / 1024:.1f} KB")
