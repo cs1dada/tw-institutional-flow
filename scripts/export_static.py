@@ -22,7 +22,7 @@ _bootstrap.setup_logging()
 
 from app import config
 from app.db import connect
-from app.services import dataset, etf_cost, etf_daily, etf_report
+from app.services import dataset, etf_cost, etf_daily, etf_report, themes
 
 DOCS_DIR = config.BASE_DIR / "docs"
 DATA_DIR = DOCS_DIR / "data"
@@ -114,6 +114,19 @@ def export_etf_report(conn, days):
     print(f"etf_report/*.json  {len(payloads)} 檔，共 {day_bytes / 1024 / 1024:.2f} MB")
 
 
+def export_themes(conn, days):
+    """題材分類：結構一個檔，每個揭露日的數字一個檔，整批重建。"""
+    structure, snapshots = themes.build_all(conn, limit=days)
+    size = write_json(DATA_DIR / "themes.json", structure)
+    print(f"themes.json  {size / 1024:.1f} KB")
+
+    day_dir = DATA_DIR / "themes"
+    if day_dir.exists():
+        shutil.rmtree(day_dir)
+    day_bytes = sum(write_json(day_dir / f"{date}.json", payload) for date, payload in snapshots.items())
+    print(f"themes/*.json  {len(snapshots)} 檔，共 {day_bytes / 1024 / 1024:.2f} MB")
+
+
 def main():
     args = [a for a in sys.argv[1:] if a != "--force"]
     force = "--force" in sys.argv
@@ -155,6 +168,7 @@ def main():
         export_etf_cost(conn)
         export_etf_daily(conn, days)
         export_etf_report(conn, min(days, REPORT_DAYS))
+        export_themes(conn, min(days, REPORT_DAYS))
     finally:
         conn.close()
 

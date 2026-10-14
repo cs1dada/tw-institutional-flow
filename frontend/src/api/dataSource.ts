@@ -19,6 +19,8 @@ import type {
     HistoryData,
     IndexPayload,
     Meta,
+    ThemesData,
+    ThemesSnapshot,
 } from "@/types"
 
 const MODE: "api" | "static" = window.APP_MODE === "static" ? "static" : "api"
@@ -50,6 +52,8 @@ const SOURCES = {
         etfDaily: (date: string) => versioned(`data/etf_daily/${date}.json`),
         etfReportDates: () => versioned("data/etf_report.json"),
         etfReport: (date: string) => versioned(`data/etf_report/${date}.json`),
+        themes: () => versioned("data/themes.json"),
+        themesSnapshot: (date: string) => versioned(`data/themes/${date}.json`),
     },
     api: {
         meta: () => "/api/meta",
@@ -63,6 +67,8 @@ const SOURCES = {
         etfDaily: (date: string) => `/api/etf-daily/${date}`,
         etfReportDates: () => "/api/etf-report",
         etfReport: (date: string) => `/api/etf-report/${date}`,
+        themes: () => "/api/themes",
+        themesSnapshot: (date: string) => `/api/themes/${date}`,
     },
 } as const
 
@@ -95,6 +101,8 @@ const cache: {
     etfDaily: Map<string, EtfDailyData>
     etfReportDates: EtfReportDates | null
     etfReport: Map<string, EtfReportData>
+    themes: ThemesData | null
+    themesSnapshots: Map<string, ThemesSnapshot>
 } = {
     meta: null,
     days: new Map(),
@@ -107,6 +115,8 @@ const cache: {
     etfDaily: new Map(),
     etfReportDates: null,
     etfReport: new Map(),
+    themes: null,
+    themesSnapshots: new Map(),
 }
 
 export async function loadMeta(): Promise<Meta> {
@@ -244,5 +254,31 @@ export async function loadEtfReport(date: string): Promise<EtfReportData> {
     }
     const data = await fetchJson<EtfReportData>(SOURCES[MODE].etfReport(date))
     cache.etfReport.set(date, data)
+    return data
+}
+
+export async function loadThemes(): Promise<ThemesData> {
+    if (cache.themes) {
+        return cache.themes
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<ThemesData>(SOURCES[MODE].themes())
+    cache.themes = data
+    return data
+}
+
+/** 題材分類的當日數字，切換日期時才下載 */
+export async function loadThemesSnapshot(date: string): Promise<ThemesSnapshot> {
+    const cached = cache.themesSnapshots.get(date)
+    if (cached) {
+        return cached
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<ThemesSnapshot>(SOURCES[MODE].themesSnapshot(date))
+    cache.themesSnapshots.set(date, data)
     return data
 }

@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app import config
 from app.db import connect
-from app.services import dataset, etf_cost, etf_daily, etf_report, history, intraday
+from app.services import dataset, etf_cost, etf_daily, etf_report, history, intraday, themes
 
 router = APIRouter(prefix="/api")
 
@@ -480,6 +480,29 @@ def api_etf_daily(date: str):
         conn.close()
     if payload is None:
         raise HTTPException(status_code=404, detail=f"{date} 沒有可比對的 ETF 持股快照")
+    return payload
+
+
+@router.get("/themes")
+def api_themes():
+    """題材分類的結構：題材、環節與個股，以及可選的揭露日。"""
+    conn = connect()
+    try:
+        return themes.build_structure(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/themes/{date}")
+def api_themes_snapshot(date: str):
+    """單一揭露日的收盤、漲跌幅與主動式 ETF 持有檔數。"""
+    conn = connect()
+    try:
+        payload = themes.build_snapshot(conn, date)
+    finally:
+        conn.close()
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"{date} 沒有主動式 ETF 持股資料")
     return payload
 
 

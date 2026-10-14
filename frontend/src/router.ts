@@ -7,6 +7,7 @@ import IntradayView from "@/views/IntradayView.vue"
 import QuoteView from "@/views/QuoteView.vue"
 import ReportView from "@/views/ReportView.vue"
 import SinoQuoteView from "@/views/SinoQuoteView.vue"
+import ThemesView from "@/views/ThemesView.vue"
 import EtfView from "@/views/EtfView.vue"
 
 /**
@@ -24,6 +25,7 @@ export const router = createRouter({
         { path: "/quote", component: QuoteView },
         { path: "/sino", component: SinoQuoteView },
         { path: "/index", component: IndexChartView },
+        { path: "/themes", component: ThemesView },
         { path: "/:pathMatch(.*)*", redirect: "/" },
     ],
 })

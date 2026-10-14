@@ -741,3 +741,55 @@ export interface EtfReportDateItem extends EtfDailyDateItem {
 export interface EtfReportDates {
     dates: EtfReportDateItem[]
 }
+
+/* ===== 題材分類 ===== */
+
+export type ThemeRelevance = "high" | "mid" | "low"
+
+export interface ThemeSegment {
+    id: string
+    name: string
+    description: string
+    stocks: { code: string; rel: ThemeRelevance }[]
+}
+
+export interface Theme {
+    id: string
+    name: string
+    group: string
+    description: string
+    segments: ThemeSegment[]
+}
+
+export interface ThemeStockInfo {
+    name: string | null
+    industry: string | null
+}
+
+/** 分類結構與可選的揭露日 */
+export interface ThemesData {
+    updated: string
+    relevance: Record<ThemeRelevance, string>
+    dates: { date: string; etf_count: number }[]
+    themes: Theme[]
+    stocks: Record<string, ThemeStockInfo>
+}
+
+export interface ThemeStockQuote {
+    close: number | null
+    change_pct: number | null
+    /** 當日持有這檔股票的主動式 ETF 檔數 */
+    etf_holders: number
+    /** 主動式 ETF 合計持股市值 (元) */
+    etf_value: number
+}
+
+/** 單一揭露日的數字 */
+export interface ThemesSnapshot {
+    date: string
+    prev_date: string | null
+    etf_count: number
+    stocks: Record<string, ThemeStockQuote>
+    /** 主動式 ETF 有持有、但分類表尚未收錄的個股 */
+    unclassified: ({ code: string } & ThemeStockInfo)[]
+}

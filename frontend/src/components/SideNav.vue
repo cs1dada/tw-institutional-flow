@@ -35,6 +35,7 @@ const ITEMS: NavItem[] = [
     { to: "/quote", label: "即時行情", desc: "富果：微台、大盤與個股", quoteOnly: true },
     { to: "/sino", label: "永豐行情", desc: "Shioaji：大台、大盤與個股", sinoOnly: true },
     { to: "/index", label: "大盤指數", desc: "加權指數 K 線" },
+    { to: "/themes", label: "題材分類", desc: "題材、環節與個股" },
 ]
 
 const intradayEnabled = !isStatic && window.APP_INTRADAY === "on"
