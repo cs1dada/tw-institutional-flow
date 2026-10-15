@@ -22,9 +22,9 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -34,7 +34,7 @@ jobs:
       # 資料庫不納入版本控制，改用快取在每次執行之間保存。
       # key 每次都不同以便存入新版，restore-keys 則取回最近一次的內容。
       - name: 還原資料庫快取
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: data/stock.db
           key: stock-db-${{ github.run_id }}

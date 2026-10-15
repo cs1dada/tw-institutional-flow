@@ -36,9 +36,9 @@ jobs:
     timeout-minutes: 200
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -48,7 +48,7 @@ jobs:
       # 還原與存回分成兩步，回補逾時或失敗時仍能把已完成的部分存回快取，
       # 再次執行時兩支回補腳本都會略過已存在的日期，從中斷處繼續
       - name: 還原資料庫快取
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: data/stock.db
           key: stock-db-${{ github.run_id }}
@@ -83,7 +83,7 @@ jobs:
 
       - name: 存回資料庫快取
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: data/stock.db
           key: stock-db-${{ github.run_id }}
