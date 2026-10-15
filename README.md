@@ -538,9 +538,9 @@ B 檔是 09-09，直接比對會讓 A 檔的所有持股都被誤判為「新進
 - 分割、股票股利、減資會自動偵測並還原：收盤價變動超過 10% 漲跌幅限制，且各 ETF 持股同步以相近倍率變動時，把事件之前的股數與股價換算成最新的股本單位。現金股利的除息缺口不還原
 - 持股能對到台股行情的比例低於一半的 ETF (以海外股票為主) 不納入
 
-#### ETF 每日榜單
+#### 主動式 ETF 每日榜單
 
-側邊欄「ETF 每日榜單」(`/daily`)，方法整理自 [notes/ETF_STRATEGY.md](notes/ETF_STRATEGY.md) 第二節，
+側邊欄「主動式 ETF 每日榜單」(`/daily`)，方法整理自 [notes/ETF_STRATEGY.md](notes/ETF_STRATEGY.md) 第二節，
 計算在 `app/services/etf_daily.py`。每個揭露日把各 ETF 與自己的前一個快照比對，聚合成三張榜單：
 
 | 榜單 | 內容 |
@@ -556,9 +556,9 @@ B 檔是 09-09，直接比對會讓 A 檔的所有持股都被誤判為「新進
 原網站另有「主力」(買超前 15 大分點減賣超前 15 大分點)，需要券商分點資料，
 官方來源有驗證碼、免費 API 皆未提供，因此不做。當天尚有 ETF 未公布時，頁面會標示已公布的檔數。
 
-#### ETF 日報
+#### 主動式 ETF 日報
 
-側邊欄「ETF 日報」(`/reports`)，方法整理自 [notes/ETF_STRATEGY.md](notes/ETF_STRATEGY.md) 第三節，
+側邊欄「主動式 ETF 日報」(`/reports`)，方法整理自 [notes/ETF_STRATEGY.md](notes/ETF_STRATEGY.md) 第三節，
 計算在 `app/services/etf_report.py`，與每日榜單共用同一份持股比對。每個揭露日一份，分為統計區與深度解讀。
 
 統計區的指標：

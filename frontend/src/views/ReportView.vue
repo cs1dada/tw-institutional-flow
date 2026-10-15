@@ -271,7 +271,7 @@ onMounted(async () => {
     <section class="view">
         <header class="page-head">
             <div>
-                <h1>ETF 日報</h1>
+                <h1>主動式 ETF 日報</h1>
                 <p class="subtitle">
                     訊號有多強、誰出手最準：以金額 × 家數為訊號分級，並扣除申購贖回造成的被動買賣
                 </p>

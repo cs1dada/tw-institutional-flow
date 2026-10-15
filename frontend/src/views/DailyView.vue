@@ -180,7 +180,7 @@ onMounted(async () => {
     <section class="view">
         <header class="page-head">
             <div>
-                <h1>ETF 每日榜單</h1>
+                <h1>主動式 ETF 每日榜單</h1>
                 <p class="subtitle">
                     今天的資金去哪了：依主動式 ETF 每日揭露的持股，聚合當日加減碼，金額以當日成交均價 (VWAP) 推估
                 </p>
