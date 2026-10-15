@@ -393,6 +393,16 @@ def api_history(days: int = Query(dataset.HISTORY_DAYS, ge=1, le=250)):
         conn.close()
 
 
+@router.get("/theme-history")
+def api_theme_history(days: int = Query(dataset.HISTORY_DAYS, ge=1, le=250)):
+    """各題材近 N 個交易日的趨勢，供題材模式的趨勢圖與連續買賣超使用。"""
+    conn = connect()
+    try:
+        return dataset.build_theme_history(conn, days)
+    finally:
+        conn.close()
+
+
 @router.get("/index-data")
 def api_index_data():
     """大盤指數日線，週線與月線由前端聚合。"""

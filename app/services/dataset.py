@@ -334,6 +334,73 @@ def _etf_changes(conn, date_str=None, limit=None):
     return rows[:limit] if limit else rows
 
 
+def _theme_membership():
+    """題材名稱 → 成員代號集合。
+
+    成員取自 data/themes.json；一檔股票可以同時出現在多個題材，
+    因此會出現在多個集合，聚合時全額計入每個題材。
+    """
+    from app.services import themes as themes_service
+
+    data = themes_service.load_themes()
+    membership = {}
+    for theme in data["themes"]:
+        codes = membership.setdefault(theme["name"], set())
+        for segment in theme["segments"]:
+            for stock in segment["stocks"]:
+                codes.add(stock["code"])
+    return membership
+
+
+def build_theme_history(conn, days=HISTORY_DAYS):
+    """各題材近 N 個交易日的四種法人金額。
+
+    供題材模式的趨勢圖與連續買賣超使用，結構與 build_history 相同
+    (industries 的鍵改為題材名稱)，前端因此可共用同一套處理邏輯。
+    跨題材的個股全額計入每個題材，與前端熱力圖的聚合規則一致。
+    """
+    membership = _theme_membership()
+    dates = [
+        r[0]
+        for r in conn.execute(
+            "SELECT DISTINCT date FROM industry_daily ORDER BY date DESC LIMIT ?", (days,)
+        )
+    ]
+    if not dates or not membership:
+        return {"dates": [], "industries": {}}
+    placeholders = ",".join(["?"] * len(dates))
+    rows = conn.execute(
+        f"""
+        SELECT date, code, total_amt, foreign_amt, trust_amt, dealer_amt
+        FROM inst_trade
+        WHERE date IN ({placeholders})
+        """,
+        dates,
+    ).fetchall()
+    by_code = {}
+    for row in rows:
+        by_code.setdefault(row["code"], []).append(row)
+
+    industries = {}
+    for theme_name, codes in membership.items():
+        per_date = {}
+        for code in codes:
+            for row in by_code.get(code, []):
+                acc = per_date.setdefault(
+                    row["date"],
+                    {"total_amt": 0.0, "foreign_amt": 0.0, "trust_amt": 0.0, "dealer_amt": 0.0},
+                )
+                for field in AMOUNT_FIELDS:
+                    acc[field] += row[field] or 0
+        if not per_date:
+            continue
+        industries[theme_name] = [
+            {"date": date, **{field: round(per_date[date][field]) for field in AMOUNT_FIELDS}}
+            for date in sorted(per_date)
+        ]
+    return {"dates": sorted(dates), "industries": industries}
+
+
 def build_history(conn, days=HISTORY_DAYS):
     """各類股近 N 個交易日的四種法人金額，供趨勢圖使用。"""
     dates = [

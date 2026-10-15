@@ -7,7 +7,7 @@
  */
 import { computed, onMounted, ref, watch } from "vue"
 
-import { loadDay, loadHistory, loadMeta } from "@/api/dataSource"
+import { loadDay, loadHistory, loadMeta, loadThemeHistory, loadThemes } from "@/api/dataSource"
 import FlowTreemap from "@/components/FlowTreemap.vue"
 import RankingChart from "@/components/RankingChart.vue"
 import TrendChart from "@/components/TrendChart.vue"
@@ -19,6 +19,7 @@ import type {
     IndustryFlow,
     Investor,
     StockFlow,
+    ThemesData,
 } from "@/types"
 import {
     FIELD_OF,
@@ -38,8 +39,12 @@ import {
     splitLimits,
     stockRanking,
 } from "@/utils/flow"
+import { themeFlow, themeStocks, themeStreak } from "@/utils/themeFlow"
 import { formatDate, toYi } from "@/utils/format"
 import { colors, cvdMode } from "@/utils/theme"
+
+/** 分組維度：產業別或題材分類 */
+type GroupMode = "industry" | "theme"
 
 const RANKING_LIMIT = 20
 /** 排行圖只取買超與賣超金額最大的各 N 個類股 */
@@ -49,6 +54,7 @@ const dates = ref<DateItem[]>([])
 const dateMeta = ref<Record<string, DateItem>>({})
 const selectedDate = ref<string>("")
 const investor = ref<Investor>("all")
+const groupMode = ref<GroupMode>("industry")
 const includeEtf = ref(false)
 const showStocks = ref(true)
 const drill = ref<string | null>(null)
@@ -56,19 +62,38 @@ const selected = ref<string | null>(null)
 
 const day = ref<DayData | null>(null)
 const history = ref<HistoryData | null>(null)
+const themes = ref<ThemesData | null>(null)
+const themeHistory = ref<HistoryData | null>(null)
 const error = ref<string | null>(null)
 const loading = ref(true)
 
+/** 題材模式時為 true */
+const isTheme = computed(() => groupMode.value === "theme")
+/** 分組單位的中文稱呼，標題與說明文字共用 */
+const unitLabel = computed(() => (isTheme.value ? "題材" : "類股"))
+
 const stocks = computed(() => (day.value ? expandStocks(day.value) : []))
 
-const flowItems = computed<IndustryFlow[]>(() =>
-    day.value ? industryFlow(day.value, stocks.value, investor.value, includeEtf.value) : [],
-)
+const flowItems = computed<IndustryFlow[]>(() => {
+    if (!day.value) {
+        return []
+    }
+    if (isTheme.value) {
+        return themes.value ? themeFlow(stocks.value, themes.value, investor.value) : []
+    }
+    return industryFlow(day.value, stocks.value, investor.value, includeEtf.value)
+})
 
-/** 下鑽中的類股個股。當日個股已隨當日資料載入，不需再向伺服器要 */
-const drillStocks = computed<StockFlow[]>(() =>
-    drill.value ? industryStocks(stocks.value, drill.value, investor.value) : [],
-)
+/** 下鑽中的個股。當日個股已隨當日資料載入，不需再向伺服器要 */
+const drillStocks = computed<StockFlow[]>(() => {
+    if (!drill.value) {
+        return []
+    }
+    if (isTheme.value) {
+        return themes.value ? themeStocks(stocks.value, themes.value, drill.value, investor.value) : []
+    }
+    return industryStocks(stocks.value, drill.value, investor.value)
+})
 
 const tradedDrillStocks = computed(() =>
     drillStocks.value.filter((row) => Math.abs(row.amount) > 0).sort((a, b) => b.amount - a.amount),
@@ -85,7 +110,7 @@ const treemapRows = computed(() => {
 })
 
 const treemapTitle = computed(() =>
-    drill.value ? `${drill.value}　個股資金分布` : "類股資金分布",
+    drill.value ? `${drill.value}　個股資金分布` : `${unitLabel.value}資金分布`,
 )
 
 const treemapNote = computed(() => {
@@ -94,15 +119,16 @@ const treemapNote = computed(() => {
             + `<span class="swatch swatch-sell"></span>賣超。共 ${drillStocks.value.length} 檔，`
             + `其中 ${tradedDrillStocks.value.length} 檔有買賣超。`
     }
+    const coverage = isTheme.value ? "僅涵蓋題材分類表收錄的個股，一檔可同時計入多個題材。" : ""
     if (showStocks.value) {
-        return `外框面積為類股買賣超淨額規模，內部依同方向個股的佔比切分：前 ${LARGE_INDUSTRIES} 大類股切 `
-            + `${LARGE_TOP_STOCKS} 檔，其餘切 ${SMALL_TOP_STOCKS} 檔，更後面的合併為右下角的「其他」`
+        return `外框面積為${unitLabel.value}買賣超淨額規模，內部依同方向個股的佔比切分：前 ${LARGE_INDUSTRIES} 大`
+            + `${unitLabel.value}切 ${LARGE_TOP_STOCKS} 檔，其餘切 ${SMALL_TOP_STOCKS} 檔，更後面的合併為右下角的「其他」`
             + `（面積最多佔 ${Math.round(OTHER_MAX_RATIO * 100)}%）。`
             + `<span class="swatch swatch-buy"></span>買超　`
-            + `<span class="swatch swatch-sell"></span>賣超。點擊可下鑽至該類股全部個股。`
+            + `<span class="swatch swatch-sell"></span>賣超。點擊可下鑽至該${unitLabel.value}全部個股。${coverage}`
     }
     return `面積為買賣超金額規模，<span class="swatch swatch-buy"></span>買超　`
-        + `<span class="swatch swatch-sell"></span>賣超。點擊類股可下鑽至個股。`
+        + `<span class="swatch swatch-sell"></span>賣超。點擊${unitLabel.value}可下鑽至個股。${coverage}`
 })
 
 /* ===== 排行圖 ===== */
@@ -119,13 +145,13 @@ const rankingRows = computed(() => {
 })
 
 const rankingTitle = computed(() =>
-    drill.value ? `${drill.value}　個股買賣超排名` : "類股資金流向排行",
+    drill.value ? `${drill.value}　個股買賣超排名` : `${unitLabel.value}資金流向排行`,
 )
 
 const rankingNote = computed(() =>
     drill.value
         ? `第 1 名至第 ${tradedDrillStocks.value.length} 名，依買賣超金額排序`
-        : `買超與賣超金額最大的各 ${RANK_EACH_SIDE} 個類股`,
+        : `買超與賣超金額最大的各 ${RANK_EACH_SIDE} 個${unitLabel.value}`,
 )
 
 /* ===== 表格 ===== */
@@ -138,20 +164,34 @@ const sellRanking = computed(() =>
     day.value ? stockRanking(stocks.value, investor.value, "sell", RANKING_LIMIT) : [],
 )
 
-/** 顯示全部連續 2 天以上的類股，避免截斷後只剩買超側 */
-const streakRows = computed(() =>
-    (day.value?.streak?.[FIELD_OF[investor.value]] ?? []).filter((row) => row.streak_days >= 2),
-)
+/** 顯示全部連續 2 天以上的類股/題材，避免截斷後只剩買超側 */
+const streakRows = computed(() => {
+    if (isTheme.value) {
+        if (!themeHistory.value) {
+            return []
+        }
+        const days = day.value?.streak_days ?? 10
+        return themeStreak(themeHistory.value, investor.value, days).filter((row) => row.streak_days >= 2)
+    }
+    return (day.value?.streak?.[FIELD_OF[investor.value]] ?? []).filter((row) => row.streak_days >= 2)
+})
 
-const detailStocks = computed<StockFlow[]>(() =>
-    selected.value ? industryStocks(stocks.value, selected.value, investor.value) : [],
-)
-
-const trendItems = computed(() => {
-    if (!selected.value || !history.value) {
+const detailStocks = computed<StockFlow[]>(() => {
+    if (!selected.value) {
         return []
     }
-    return (history.value.industries[selected.value] ?? []).slice(-TREND_DAYS)
+    if (isTheme.value) {
+        return themes.value ? themeStocks(stocks.value, themes.value, selected.value, investor.value) : []
+    }
+    return industryStocks(stocks.value, selected.value, investor.value)
+})
+
+const trendItems = computed(() => {
+    const source = isTheme.value ? themeHistory.value : history.value
+    if (!selected.value || !source) {
+        return []
+    }
+    return (source.industries[selected.value] ?? []).slice(-TREND_DAYS)
 })
 
 const headline = computed(() => {
@@ -264,6 +304,30 @@ watch(selectedDate, (date) => {
     }
 })
 
+/** 題材模式所需的分類結構與歷史，第一次切換時才載入 */
+async function ensureThemeData() {
+    if (!themes.value) {
+        themes.value = await loadThemes()
+    }
+    if (!themeHistory.value) {
+        themeHistory.value = await loadThemeHistory()
+    }
+}
+
+watch(groupMode, async (mode) => {
+    // 切換分組維度後，原本下鑽/選取的名稱在另一種分組未必存在
+    drill.value = null
+    if (mode === "theme") {
+        try {
+            await ensureThemeData()
+        } catch (err) {
+            error.value = (err as Error).message
+            return
+        }
+    }
+    selected.value = flowItems.value.length ? flowItems.value[0].industry : null
+})
+
 onMounted(async () => {
     try {
         const meta = await loadMeta()
@@ -339,19 +403,39 @@ function dateLabel(item: DateItem): string {
                 </div>
             </div>
 
+            <div class="control">
+                <span class="control-label">分組方式</span>
+                <div class="tabs" role="tablist">
+                    <button
+                        v-for="opt in ([
+                            { key: 'industry', label: '產業別' },
+                            { key: 'theme', label: '題材分類' },
+                        ] as const)"
+                        :key="opt.key"
+                        type="button"
+                        class="tab"
+                        :class="{ 'is-active': groupMode === opt.key }"
+                        role="tab"
+                        @click="groupMode = opt.key"
+                    >
+                        {{ opt.label }}
+                    </button>
+                </div>
+            </div>
+
             <label class="control control-inline">
                 <input v-model="cvdMode" type="checkbox">
                 <span>色盲友善配色</span>
             </label>
 
-            <label class="control control-inline">
+            <label v-if="!isTheme" class="control control-inline">
                 <input v-model="includeEtf" type="checkbox">
                 <span>納入 ETF</span>
             </label>
 
             <label class="control control-inline">
                 <input v-model="showStocks" type="checkbox">
-                <span>類股內顯示個股</span>
+                <span>{{ unitLabel }}內顯示個股</span>
             </label>
         </div>
 
@@ -363,7 +447,7 @@ function dateLabel(item: DateItem): string {
                     <p class="panel-note" v-html="treemapNote"></p>
                 </div>
                 <button v-if="drill" type="button" class="back-btn" @click="exitDrill">
-                    返回全類股
+                    返回全{{ unitLabel }}
                 </button>
             </div>
             <FlowTreemap
@@ -395,8 +479,8 @@ function dateLabel(item: DateItem): string {
 
         <section class="panel" data-nav="類股細節">
             <div class="panel-head">
-                <h2>{{ selected ? `${selected}　類股細節` : "類股細節" }}</h2>
-                <p class="panel-note">於上方點選類股後顯示近 20 個交易日趨勢與個股明細</p>
+                <h2>{{ selected ? `${selected}　${unitLabel}細節` : `${unitLabel}細節` }}</h2>
+                <p class="panel-note">於上方點選{{ unitLabel }}後顯示近 20 個交易日趨勢與個股明細</p>
             </div>
             <div class="detail-grid">
                 <TrendChart
@@ -433,16 +517,16 @@ function dateLabel(item: DateItem): string {
 
         <section class="panel" data-nav="連續買賣超">
             <div class="panel-head">
-                <h2>連續買賣超類股</h2>
+                <h2>連續買賣超{{ unitLabel }}</h2>
                 <p class="panel-note">
-                    近 10 個交易日中，資金持續同方向流動的類股，依期間累計金額的絕對值由大到小排序
+                    近 10 個交易日中，資金持續同方向流動的{{ unitLabel }}，依期間累計金額的絕對值由大到小排序
                 </p>
             </div>
             <div class="table-wrap">
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>類股</th><th>方向</th>
+                            <th>{{ unitLabel }}</th><th>方向</th>
                             <th class="num">連續天數</th><th class="num">期間累計（億）</th>
                         </tr>
                     </thead>

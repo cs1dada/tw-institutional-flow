@@ -44,6 +44,7 @@ const SOURCES = {
         meta: () => `data/meta.json?t=${Date.now()}`,
         day: (date: string) => versioned(`data/day/${date}.json`),
         history: () => versioned("data/history.json"),
+        themeHistory: () => versioned("data/theme_history.json"),
         etf: () => versioned("data/etf.json"),
         index: () => versioned("data/index.json"),
         etfCost: () => versioned("data/etf_cost.json"),
@@ -59,6 +60,7 @@ const SOURCES = {
         meta: () => "/api/meta",
         day: (date: string) => `/api/day/${date}`,
         history: () => "/api/history",
+        themeHistory: () => "/api/theme-history",
         etf: () => "/api/etf-data",
         index: () => "/api/index-data",
         etfCost: () => "/api/etf-cost",
@@ -93,6 +95,7 @@ const cache: {
     meta: Meta | null
     days: Map<string, DayData>
     history: HistoryData | null
+    themeHistory: HistoryData | null
     etf: EtfData | null
     index: IndexPayload | null
     etfCost: EtfCostSummary | null
@@ -107,6 +110,7 @@ const cache: {
     meta: null,
     days: new Map(),
     history: null,
+    themeHistory: null,
     etf: null,
     index: null,
     etfCost: null,
@@ -152,6 +156,19 @@ export async function loadHistory(): Promise<HistoryData> {
     }
     const data = await fetchJson<HistoryData>(SOURCES[MODE].history())
     cache.history = data
+    return data
+}
+
+/** 各題材近 N 個交易日的趨勢，結構同 history，鍵為題材名稱 */
+export async function loadThemeHistory(): Promise<HistoryData> {
+    if (cache.themeHistory) {
+        return cache.themeHistory
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<HistoryData>(SOURCES[MODE].themeHistory())
+    cache.themeHistory = data
     return data
 }
 

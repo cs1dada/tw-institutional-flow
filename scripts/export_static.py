@@ -159,6 +159,9 @@ def main():
         size = write_json(DATA_DIR / "history.json", dataset.build_history(conn))
         print(f"history.json  {size / 1024:.1f} KB")
 
+        size = write_json(DATA_DIR / "theme_history.json", dataset.build_theme_history(conn))
+        print(f"theme_history.json  {size / 1024:.1f} KB")
+
         size = write_json(DATA_DIR / "etf.json", dataset.build_etf(conn))
         print(f"etf.json  {size / 1024:.1f} KB")
 
