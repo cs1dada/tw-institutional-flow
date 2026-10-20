@@ -148,6 +148,9 @@ const option = computed(() => {
                 roam: false,
                 nodeClick: false,
                 breadcrumb: { show: false },
+                // 下鑽與返回時會連續重繪兩次 (換資料、換高度)，更新動畫在途中被第二次重繪打斷，
+                // 區塊會停在舊尺寸的形狀而跑版；兩層資料互換時過場動畫也沒有意義，因此關閉
+                animation: false,
                 width: "100%",
                 height: "100%",
                 label: {
