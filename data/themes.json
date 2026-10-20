@@ -1,5 +1,5 @@
 {
-    "updated": "2026-10-14",
+    "updated": "2026-10-20",
     "relevance": {
         "high": "主要營收來自這個環節",
         "mid": "有相當比重，但不是唯一主力",
@@ -217,7 +217,8 @@
                     "description": "測試分選機、自動化測試與量測設備",
                     "stocks": [
                         {"code": "7769", "rel": "high"},
-                        {"code": "2360", "rel": "mid"}
+                        {"code": "2360", "rel": "mid"},
+                        {"code": "7856", "rel": "mid"}
                     ]
                 },
                 {
@@ -426,7 +427,8 @@
                     "stocks": [
                         {"code": "6715", "rel": "mid"},
                         {"code": "2476", "rel": "mid"},
-                        {"code": "3023", "rel": "mid"}
+                        {"code": "3023", "rel": "mid"},
+                        {"code": "2486", "rel": "mid"}
                     ]
                 }
             ]
@@ -446,7 +448,8 @@
                         {"code": "6669", "rel": "high"},
                         {"code": "3231", "rel": "high"},
                         {"code": "2317", "rel": "high"},
-                        {"code": "3706", "rel": "mid"}
+                        {"code": "3706", "rel": "mid"},
+                        {"code": "4938", "rel": "mid"}
                     ]
                 },
                 {
@@ -467,7 +470,8 @@
                         {"code": "2059", "rel": "high"},
                         {"code": "8210", "rel": "high"},
                         {"code": "6584", "rel": "high"},
-                        {"code": "3693", "rel": "mid"}
+                        {"code": "3693", "rel": "mid"},
+                        {"code": "3376", "rel": "low"}
                     ]
                 }
             ]
@@ -602,7 +606,8 @@
                     "description": "液晶面板與 LED 晶片",
                     "stocks": [
                         {"code": "2409", "rel": "high"},
-                        {"code": "3714", "rel": "high"}
+                        {"code": "3714", "rel": "high"},
+                        {"code": "6278", "rel": "mid"}
                     ]
                 },
                 {
@@ -858,7 +863,8 @@
                         {"code": "1476", "rel": "high"},
                         {"code": "1409", "rel": "high"},
                         {"code": "9802", "rel": "high"},
-                        {"code": "6670", "rel": "high"}
+                        {"code": "6670", "rel": "high"},
+                        {"code": "1402", "rel": "mid"}
                     ]
                 },
                 {
