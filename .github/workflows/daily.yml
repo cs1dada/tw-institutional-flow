@@ -7,6 +7,12 @@ on:
     # GitHub 的排程不保證準時，實際可能延後數分鐘到數十分鐘。
     - cron: '40 8 * * 1-5'
   workflow_dispatch:
+  # 本機推送代抓的 ETF 持股後立即重新匯出 (見 scripts/sync_manual_etf.py)。
+  # 排程自己的提交只動到 docs/，不會再次觸發
+  push:
+    branches: [main]
+    paths:
+      - 'data/etf_manual/**'
 
 # 需要寫入權限才能把更新後的 docs 推回 repo
 permissions:

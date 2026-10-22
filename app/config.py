@@ -83,6 +83,12 @@ ISIN_ENCODING = "ms950"
 INDUSTRY_ETF = "ETF"
 INDUSTRY_UNKNOWN = "未分類"
 
+# 由本機代抓持股的主動式 ETF。這些投信的網站封鎖海外 IP，
+# GitHub Actions 一律回 403，改由本機抓取後存成 JSON 納入版控，
+# 排程再從這裡匯入。見 scripts/sync_manual_etf.py
+MANUAL_ETFS = ("00996A",)
+MANUAL_ETF_DIR = DATA_DIR / "etf_manual"
+
 # 抓取行為
 REQUEST_TIMEOUT = 40
 # 回補歷史時每次請求之間的間隔秒數，避免被證交所擋

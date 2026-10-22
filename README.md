@@ -512,6 +512,19 @@ python scripts/backfill_etf.py 92 00980A 00981A     # 只補指定幾檔
 已存在的日期會自動略過；連續三個交易日查無資料時，視為已超出上市日或投信保留的範圍而停止。
 中信只保留近期的清單，更早的日期查不到。
 
+**兆豐 (00996A) 需要由本機代抓**。兆豐投信的網站封鎖海外 IP，GitHub Actions 一律回 403，
+因此改在本機抓取，存成 `data/etf_manual/00996A/YYYYMMDD.json` 納入版控，
+每日排程執行 `daily_job.py` 時再匯入資料庫中還沒有的日期：
+
+```bash
+python scripts/sync_manual_etf.py           # 抓取最新一日並匯出，不提交
+python scripts/sync_manual_etf.py --push    # 有新檔案時提交並推送
+```
+
+推送 `data/etf_manual/` 會觸發每日排程，線上版隨即重新匯出。本機沒執行的那幾天，
+線上版就缺這一檔；之後補跑時，資料庫中所有日期都會一併匯出。
+需要代抓的 ETF 列在 `app/config.py` 的 `MANUAL_ETFS`。
+
 各投信的持股基準日不一定相同（海外股票 ETF 通常晚一日），因此以 API 回傳的
 基準日為準，而非抓取當天的日期。
 

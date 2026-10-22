@@ -3,7 +3,8 @@
 執行內容：
 1. 個股主檔超過 7 天未更新時重新抓取 (新上市、產業重分類)
 2. 匯入今日資料
-3. 抓取主動式 ETF 最新一日的持股 (過去的日期用 backfill_etf.py 回補)
+3. 抓取主動式 ETF 最新一日的持股 (過去的日期用 backfill_etf.py 回補)，
+   並匯入本機代抓的持股檔案 (見 sync_manual_etf.py)
 4. 更新大盤指數日線 (證交所以月為單位提供，重抓最近兩個月即可)
 5. 補抓近 7 天內資料不齊全的工作日
    (上市約 16:00 才公布，排程跑得早會只拿到上櫃或整天沒有資料)
@@ -21,6 +22,7 @@ _bootstrap.setup_logging()
 from app import config
 from app.db import connect, init_schema
 from app.services.etf_ingest import ingest_etf_holdings
+from app.services.etf_manual import import_manual
 from app.services.index_ingest import ingest_index_months
 from app.services.ingest import ingest_date, update_stock_info
 
@@ -112,6 +114,10 @@ def main():
         for r in etf_results:
             if r["status"] != "ok":
                 print(f"  {r['etf_code']} {r['status']} {r.get('message', '')}")
+
+        # 封鎖海外 IP 的投信改由本機代抓，這裡匯入資料庫還沒有的日期
+        for code, count in import_manual(conn).items():
+            print(f"{code} 匯入本機代抓持股 {count} 天")
 
         index_rows = ingest_index_months(index_months(conn), conn=conn)
         print(f"大盤指數更新 {index_rows} 個交易日")
