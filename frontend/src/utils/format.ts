@@ -30,3 +30,8 @@ export function signed(value: number | null | undefined, digits = 2): string {
     }
     return (value > 0 ? "+" : "") + value.toFixed(digits)
 }
+
+/** 帶正負號的百分比，null 或缺欄位時顯示為 -- */
+export function signedPct(value: number | null | undefined, digits = 2): string {
+    return value === null || value === undefined ? "--" : `${signed(value, digits)}%`
+}

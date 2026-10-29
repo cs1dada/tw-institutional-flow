@@ -93,6 +93,7 @@ export function buildChildren(
         name: m.name,
         market: m.market,
         close: m.close,
+        change_pct: m.change_pct,
         amount: m[key],
         is_other: false,
     }))

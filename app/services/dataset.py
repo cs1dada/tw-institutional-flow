@@ -89,7 +89,7 @@ def _industries(conn, date_str):
 # 2000 多筆資料若每筆都帶欄位名，檔案會膨脹一倍以上。
 STOCK_FIELDS = (
     "code", "name", "market", "industry", "is_etf", "close",
-    "total_amt", "foreign_amt", "trust_amt", "dealer_amt",
+    "total_amt", "foreign_amt", "trust_amt", "dealer_amt", "change_pct",
 )
 
 
@@ -98,16 +98,21 @@ def _stocks(conn, date_str):
 
     前端用這份資料算出類股組成、個股排行與下鑽明細，
     因此不需要另外重複輸出那些衍生結果。
+    漲跌幅以前一個交易日的收盤計算，停牌或缺前日收盤時為 None。
     """
     rows = conn.execute(
         """
         SELECT t.code, s.name, s.market, s.industry, s.is_etf, t.close,
-               t.total_amt, t.foreign_amt, t.trust_amt, t.dealer_amt
+               t.total_amt, t.foreign_amt, t.trust_amt, t.dealer_amt,
+               p.close AS prev_close
         FROM inst_trade AS t
         JOIN stock_info AS s ON s.code = t.code
+        LEFT JOIN daily_price AS p
+            ON p.code = t.code
+           AND p.date = (SELECT MAX(date) FROM daily_price WHERE date < ?)
         WHERE t.date = ?
         """,
-        (date_str,),
+        (date_str, date_str),
     ).fetchall()
     return [
         [
@@ -118,9 +123,16 @@ def _stocks(conn, date_str):
             round(row["foreign_amt"] or 0),
             round(row["trust_amt"] or 0),
             round(row["dealer_amt"] or 0),
+            _change_pct(row["close"], row["prev_close"]),
         ]
         for row in rows
     ]
+
+
+def _change_pct(close, prev_close):
+    if not close or not prev_close:
+        return None
+    return round((close / prev_close - 1) * 100, 2)
 
 
 def _streak(conn, date_str, days=STREAK_DAYS):

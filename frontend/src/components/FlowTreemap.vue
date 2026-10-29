@@ -11,7 +11,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
 import VChart from "vue-echarts"
 
 import { OTHER_MAX_RATIO } from "@/utils/flow"
-import { toYi } from "@/utils/format"
+import { signedPct, toYi } from "@/utils/format"
 import { baseTooltip, colors, polarityColor } from "@/utils/theme"
 
 /** 只要求有金額，其餘欄位由呼叫端的 nameOf / tooltip 自行解讀 */
@@ -158,6 +158,11 @@ const option = computed(() => {
                     overflow: "truncate",
                     formatter: (params: any) => {
                         let text = `{name|${params.name}}\n{value|${toYi(params.data.amount, digits)} 億}`
+                        // 個股節點附上當日漲跌幅，類股與「其他」沒有這個欄位
+                        const change = params.data.detail?.change_pct
+                        if (change !== null && change !== undefined) {
+                            text += `　{value|${signedPct(change, 1)}}`
+                        }
                         for (const line of params.data.lines ?? []) {
                             text += `\n{stock|${line}}`
                         }

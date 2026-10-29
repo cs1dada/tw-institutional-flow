@@ -40,7 +40,7 @@ import {
     stockRanking,
 } from "@/utils/flow"
 import { themeFlow, themeStocks, themeStreak } from "@/utils/themeFlow"
-import { formatDate, toYi } from "@/utils/format"
+import { formatDate, signedPct, toYi } from "@/utils/format"
 import { colors, cvdMode } from "@/utils/theme"
 
 /** 分組維度：產業別或題材分類 */
@@ -239,7 +239,7 @@ function stockTooltip(row: StockFlow, rank?: number): string {
         + `投信　　${toYi(row.trust_amt, 2)} 億<br>`
         + `自營商　${toYi(row.dealer_amt, 2)} 億<br>`
         + `<span style="color:${c.muted}">${market}　收盤 `
-        + `${row.close === null ? "--" : row.close.toFixed(2)}</span>`
+        + `${row.close === null ? "--" : row.close.toFixed(2)}　漲跌 ${signedPct(row.change_pct)}</span>`
 }
 
 /** 類股區塊內的個股節點 tooltip */
@@ -260,7 +260,8 @@ function compositionTooltip(row: FlowChild | IndustryFlow): string {
     return `<strong>${kid.code} ${kid.name}</strong><br>所屬類股　${kid.industry}<br>`
         + `買賣超　　${toYi(kid.amount, 2)} 億<br>`
         + `<span style="color:${c.muted}">${MARKET_LABELS[kid.market ?? ""] ?? kid.market}　收盤 `
-        + `${kid.close === null || kid.close === undefined ? "--" : kid.close.toFixed(2)}</span>`
+        + `${kid.close === null || kid.close === undefined ? "--" : kid.close.toFixed(2)}`
+        + `　漲跌 ${signedPct(kid.change_pct)}</span>`
 }
 
 /* ===== 互動 ===== */

@@ -22,7 +22,7 @@ _bootstrap.setup_logging()
 
 from app import config
 from app.db import connect
-from app.services import dataset, etf_cost, etf_daily, etf_report, themes
+from app.services import dataset, etf_cost, etf_daily, etf_report, etf_trend, themes
 
 DOCS_DIR = config.BASE_DIR / "docs"
 DATA_DIR = DOCS_DIR / "data"
@@ -114,6 +114,15 @@ def export_etf_report(conn, days):
     print(f"etf_report/*.json  {len(payloads)} 檔，共 {day_bytes / 1024 / 1024:.2f} MB")
 
 
+def export_etf_trend(conn):
+    """ETF 累積趨勢：只匯出以最新揭露日為終點的一份，三種窗口放在同一個檔。"""
+    payload = etf_trend.build(conn)
+    if payload is None:
+        return
+    size = write_json(DATA_DIR / "etf_trend.json", payload)
+    print(f"etf_trend.json  {size / 1024:.1f} KB")
+
+
 def export_themes(conn, days):
     """題材分類：結構一個檔，每個揭露日的數字一個檔，整批重建。"""
     structure, snapshots = themes.build_all(conn, limit=days)
@@ -171,6 +180,7 @@ def main():
         export_etf_cost(conn)
         export_etf_daily(conn, days)
         export_etf_report(conn, min(days, REPORT_DAYS))
+        export_etf_trend(conn)
         export_themes(conn, min(days, REPORT_DAYS))
     finally:
         conn.close()

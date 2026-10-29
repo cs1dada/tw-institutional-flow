@@ -15,6 +15,7 @@ import type {
     EtfDailyDates,
     EtfReportData,
     EtfReportDates,
+    EtfTrendData,
     EtfData,
     HistoryData,
     IndexPayload,
@@ -53,6 +54,7 @@ const SOURCES = {
         etfDaily: (date: string) => versioned(`data/etf_daily/${date}.json`),
         etfReportDates: () => versioned("data/etf_report.json"),
         etfReport: (date: string) => versioned(`data/etf_report/${date}.json`),
+        etfTrend: () => versioned("data/etf_trend.json"),
         themes: () => versioned("data/themes.json"),
         themesSnapshot: (date: string) => versioned(`data/themes/${date}.json`),
     },
@@ -69,6 +71,7 @@ const SOURCES = {
         etfDaily: (date: string) => `/api/etf-daily/${date}`,
         etfReportDates: () => "/api/etf-report",
         etfReport: (date: string) => `/api/etf-report/${date}`,
+        etfTrend: () => "/api/etf-trend",
         themes: () => "/api/themes",
         themesSnapshot: (date: string) => `/api/themes/${date}`,
     },
@@ -104,6 +107,7 @@ const cache: {
     etfDaily: Map<string, EtfDailyData>
     etfReportDates: EtfReportDates | null
     etfReport: Map<string, EtfReportData>
+    etfTrend: EtfTrendData | null
     themes: ThemesData | null
     themesSnapshots: Map<string, ThemesSnapshot>
 } = {
@@ -119,6 +123,7 @@ const cache: {
     etfDaily: new Map(),
     etfReportDates: null,
     etfReport: new Map(),
+    etfTrend: null,
     themes: null,
     themesSnapshots: new Map(),
 }
@@ -271,6 +276,19 @@ export async function loadEtfReport(date: string): Promise<EtfReportData> {
     }
     const data = await fetchJson<EtfReportData>(SOURCES[MODE].etfReport(date))
     cache.etfReport.set(date, data)
+    return data
+}
+
+/** ETF 累積趨勢，三種窗口在同一份資料裡 */
+export async function loadEtfTrend(): Promise<EtfTrendData> {
+    if (cache.etfTrend) {
+        return cache.etfTrend
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<EtfTrendData>(SOURCES[MODE].etfTrend())
+    cache.etfTrend = data
     return data
 }
 

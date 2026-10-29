@@ -50,6 +50,8 @@ export interface Stock {
     foreign_amt: number
     trust_amt: number
     dealer_amt: number
+    /** 相對前一個交易日的漲跌幅 (%)；舊版匯出的檔案沒有這個欄位 */
+    change_pct?: number | null
 }
 
 export interface StreakItem {
@@ -84,6 +86,8 @@ export interface FlowChild {
     name: string
     market: string | null
     close: number | null
+    /** 當日漲跌幅 (%)，「其他」合併項沒有 */
+    change_pct?: number | null
     amount: number
     is_other: boolean
     /** 合併項涵蓋的檔數 */
@@ -792,4 +796,67 @@ export interface ThemesSnapshot {
     stocks: Record<string, ThemeStockQuote>
     /** 主動式 ETF 有持有、但分類表尚未收錄的個股 */
     unclassified: ({ code: string } & ThemeStockInfo)[]
+}
+
+/* ===== 主動式 ETF 累積趨勢 ===== */
+
+export type EtfTrendTag = "stealth_buy" | "stealth_sell" | "contrarian_buy" | "profit_take"
+
+export interface EtfTrendStock {
+    code: string
+    name: string | null
+    industry: string | null
+    themes: string[]
+    /** 窗口淨額 (億)，各週加總 */
+    net_amt: number
+    /** 逐週淨額 (億)，由舊到新 */
+    weekly: number[]
+    buy_days: number
+    sell_days: number
+    /** 與淨額同方向的單日最大金額佔比，越低代表越分散 */
+    top_day_share: number | null
+    /** 窗口內淨加碼、淨減碼的 ETF，依金額排序 */
+    buyers: string[]
+    sellers: string[]
+    close: number | null
+    /** 期初 (窗口前一個揭露日) 到期末的股價漲跌幅 (%) */
+    change_pct: number | null
+    tags: EtfTrendTag[]
+}
+
+export interface EtfTrendGroup {
+    name: string
+    net_amt: number
+    weekly: number[]
+    buy_weeks: number
+    sell_weeks: number
+    stock_count: number
+    buy_count: number
+    sell_count: number
+    leaders: { code: string; name: string | null; net_amt: number }[]
+}
+
+export interface EtfTrendWindow {
+    weeks: number
+    days: number
+    base_date: string
+    start: string
+    end: string
+    week_ranges: { start: string; end: string }[]
+    stocks: EtfTrendStock[]
+    groups: Record<"industry" | "theme", EtfTrendGroup[]>
+}
+
+export interface EtfTrendData {
+    date: string
+    week_days: number
+    thresholds: {
+        stealth_min_day_ratio: number
+        stealth_max_top_share: number
+        min_net_yi: number
+    }
+    tags: Record<EtfTrendTag, string>
+    etf_names: Record<string, string | null>
+    /** 鍵為週數 ("2"、"4"、"8") */
+    windows: Record<string, EtfTrendWindow>
 }

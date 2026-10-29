@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app import config
 from app.db import connect
-from app.services import dataset, etf_cost, etf_daily, etf_report, history, intraday, themes
+from app.services import dataset, etf_cost, etf_daily, etf_report, etf_trend, history, intraday, themes
 
 router = APIRouter(prefix="/api")
 
@@ -536,6 +536,19 @@ def api_etf_report(date: str):
         conn.close()
     if payload is None:
         raise HTTPException(status_code=404, detail=f"{date} 沒有可比對的 ETF 持股快照")
+    return payload
+
+
+@router.get("/etf-trend")
+def api_etf_trend():
+    """以最新揭露日為終點，2、4、8 週窗口的累積加減碼：個股與族群的逐週淨額。"""
+    conn = connect()
+    try:
+        payload = etf_trend.build(conn)
+    finally:
+        conn.close()
+    if payload is None:
+        raise HTTPException(status_code=404, detail="揭露日不足，無法計算累積趨勢")
     return payload
 
 
