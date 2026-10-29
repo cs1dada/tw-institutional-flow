@@ -800,7 +800,13 @@ export interface ThemesSnapshot {
 
 /* ===== 主動式 ETF 累積趨勢 ===== */
 
-export type EtfTrendTag = "stealth_buy" | "stealth_sell" | "contrarian_buy" | "profit_take"
+export type EtfTrendTag =
+    | "stealth_buy"
+    | "stealth_sell"
+    | "burst_buy"
+    | "burst_sell"
+    | "contrarian_buy"
+    | "profit_take"
 
 export interface EtfTrendStock {
     code: string
@@ -815,6 +821,9 @@ export interface EtfTrendStock {
     sell_days: number
     /** 與淨額同方向的單日最大金額佔比，越低代表越分散 */
     top_day_share: number | null
+    /** 與淨額同方向金額最大的那一天，以及當天的金額 (億) */
+    top_day: string | null
+    top_day_amt: number | null
     /** 窗口內淨加碼、淨減碼的 ETF，依金額排序 */
     buyers: string[]
     sellers: string[]
@@ -853,6 +862,7 @@ export interface EtfTrendData {
     thresholds: {
         stealth_min_day_ratio: number
         stealth_max_top_share: number
+        burst_min_yi: number
         min_net_yi: number
     }
     tags: Record<EtfTrendTag, string>

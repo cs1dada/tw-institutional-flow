@@ -4,7 +4,7 @@
 累積起來卻很可觀。以最新揭露日往前取 2、4、8 週 (每週 5 個揭露日) 三種窗口，
 每個窗口輸出：
 
-- 個股：逐週淨額、加碼與減碼天數、單日最大佔比、加碼與減碼的 ETF 檔數、區間股價
+- 個股：逐週淨額、加碼與減碼天數、單日最大佔比與日期、加碼與減碼的 ETF 檔數、區間股價
 - 族群：依證交所產業別與題材分類 (data/themes.json) 加總的逐週淨額
 
 金額的算法：每週 (5 個揭露日) 各 ETF 期初與期末持股相比，以共同持股的股數倍率中位數
@@ -14,6 +14,8 @@
 
 加碼天數與單日最大佔比則取每日校正後的加減碼 (etf_daily.trades)，用來衡量持續性：
 單日最大佔比越低，代表加碼分散在越多天，越符合「默默」。
+金額夠大、但不符合「默默」條件的個股另外標為集中加碼或集中減碼，
+代表資金主要集中在少數幾天進出。
 
 本機 API 與靜態匯出共用這裡的函式，兩種模式的格式一致。
 """
@@ -29,6 +31,8 @@ WINDOW_WEEKS = (2, 4, 8)
 # 默默加碼：有加碼的天數至少佔窗口的這個比例，且單日最大佔比低於門檻
 STEALTH_MIN_DAY_RATIO = 0.4
 STEALTH_MAX_TOP_SHARE = 0.35
+# 集中加碼與集中減碼的窗口淨額門檻 (元)，與 etf_report.BIG_AMOUNT 一致
+BURST_MIN_AMOUNT = 3e8
 # 窗口淨額低於這個金額 (元) 不列入，避免零股與四捨五入的雜訊
 MIN_NET_AMOUNT = 1e7
 # 各族群附上的主要個股數
@@ -37,6 +41,8 @@ GROUP_LEADERS = 3
 TAGS = {
     "stealth_buy": "默默加碼",
     "stealth_sell": "默默減碼",
+    "burst_buy": "集中加碼",
+    "burst_sell": "集中減碼",
     "contrarian_buy": "逆勢加碼",
     "profit_take": "趁高調節",
 }
@@ -149,8 +155,9 @@ class _Context:
             by_day = daily.get(stock, {})
             buys = [v for v in by_day.values() if v > 0]
             sells = [v for v in by_day.values() if v < 0]
-            same_side = buys if net > 0 else sells
-            top_share = max(abs(v) for v in same_side) / abs(sum(same_side)) if same_side else None
+            same_side = {d: v for d, v in by_day.items() if v > 0} if net > 0 else {d: v for d, v in by_day.items() if v < 0}
+            top_date = max(same_side, key=lambda d: abs(same_side[d])) if same_side else None
+            top_share = abs(same_side[top_date]) / abs(sum(same_side.values())) if top_date else None
             name, industry = self.daily._stock_name(stock)
             by_etf = etf_net.get(stock, {})
             buyers = sorted((e for e, v in by_etf.items() if v > 0), key=lambda e: -by_etf[e])
@@ -166,6 +173,8 @@ class _Context:
                 "buy_days": len(buys),
                 "sell_days": len(sells),
                 "top_day_share": None if top_share is None else round(top_share, 3),
+                "top_day": top_date,
+                "top_day_amt": _yi(same_side[top_date]) if top_date else None,
                 "buyers": buyers,
                 "sellers": sellers,
                 "close": self._close(stock, end),
@@ -198,6 +207,8 @@ def _tags(row, days):
         tags.append("stealth_buy")
     if net < 0 and steady and row["sell_days"] >= days * STEALTH_MIN_DAY_RATIO:
         tags.append("stealth_sell")
+    if not tags and abs(net) >= _yi(BURST_MIN_AMOUNT):
+        tags.append("burst_buy" if net > 0 else "burst_sell")
     if change is not None and net > 0 and change < 0:
         tags.append("contrarian_buy")
     if change is not None and net < 0 and change > 0:
@@ -255,6 +266,7 @@ def build(conn):
         "thresholds": {
             "stealth_min_day_ratio": STEALTH_MIN_DAY_RATIO,
             "stealth_max_top_share": STEALTH_MAX_TOP_SHARE,
+            "burst_min_yi": _yi(BURST_MIN_AMOUNT),
             "min_net_yi": _yi(MIN_NET_AMOUNT),
         },
         "tags": TAGS,
