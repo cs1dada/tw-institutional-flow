@@ -765,32 +765,15 @@ export interface Theme {
     segments: ThemeSegment[]
 }
 
-/** 最近一次的估值快照 (Yahoo Finance 分析師共識) */
-export interface ThemeStockValuation {
-    /** 快照日期 YYYYMMDD */
-    date: string
-    /** 近四季本益比 */
-    trailing_pe: number | null
-    /** 前瞻本益比，通常以下一個會計年度的共識 EPS 計算 */
-    forward_pe: number | null
-    forward_eps: number | null
-    /** 提供預估的分析師人數 */
-    analysts: number | null
-}
-
 export interface ThemeStockInfo {
     name: string | null
     industry: string | null
-    /** 只有分類表收錄的個股才有，尚未抓過時為 null */
-    valuation?: ThemeStockValuation | null
 }
 
 /** 分類結構與可選的揭露日 */
 export interface ThemesData {
     updated: string
     relevance: Record<ThemeRelevance, string>
-    /** 分析師少於這個人數時不顯示前瞻本益比 */
-    min_analysts?: number
     dates: { date: string; etf_count: number }[]
     themes: Theme[]
     stocks: Record<string, ThemeStockInfo>
@@ -886,4 +869,68 @@ export interface EtfTrendData {
     etf_names: Record<string, string | null>
     /** 鍵為週數 ("2"、"4"、"8") */
     windows: Record<string, EtfTrendWindow>
+}
+
+/* ===== 估值九宮格 ===== */
+
+/** 估值判定：相對低估、合理、相對高估 */
+export type ValuationLevel = "low" | "fair" | "high"
+
+/** 位階：強勢區 (季線之上 5% 以上)、季線區、修復區 (季線之下 5% 以上) */
+export type PriceZone = "strong" | "ma" | "repair"
+
+/** 不判定的原因 */
+export type ValuationSkipReason = "no_estimate" | "negative_eps" | "few_analysts" | "no_band"
+
+export interface ValuationYear {
+    pe: number | null
+    eps: number | null
+    analysts: number | null
+    /** 不判定時為 null，原因見 reason */
+    valuation: ValuationLevel | null
+    reason: ValuationSkipReason | null
+    /** 本益比距合理區間邊界在 edge_pct 以內 */
+    near_edge?: boolean
+}
+
+export interface ValuationStock {
+    code: string
+    name: string | null
+    /** 主要環節所屬的題材 (合理區間依此環節) */
+    theme: string
+    segment: string
+    /** 分類表中出現的所有題材，依分類表順序 */
+    themes: string[]
+    close: number
+    change_pct: number | null
+    ma60: number | null
+    /** 收盤相對季線的距離 (%) */
+    dist_ma_pct: number | null
+    zone: PriceZone | null
+    /** 合理區間 [下緣, 上緣]，沒有設定時為 null */
+    band: [number, number] | null
+    band_source: "segment" | "stock"
+    /** 以會計年度 (字串) 為 key */
+    years: Record<string, ValuationYear>
+}
+
+/** 可選日期、題材順序與判定參數 */
+export interface ValuationIndex {
+    /** 新到舊；date 為收盤日，estimate_date 為配對的 EPS 共識快照日 */
+    dates: { date: string; estimate_date: string }[]
+    /** 與題材分類頁相同的順序 */
+    themes: string[]
+    bands_updated: string | null
+    ma_days: number
+    zone_pct: number
+    edge_pct: number
+    min_analysts: number
+}
+
+/** 單一日期的九宮格 */
+export interface ValuationSnapshot {
+    date: string
+    estimate_date: string
+    years: string[]
+    stocks: ValuationStock[]
 }

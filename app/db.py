@@ -122,20 +122,23 @@ CREATE TABLE IF NOT EXISTS future_daily (
 CREATE INDEX IF NOT EXISTS idx_future_daily_lookup
     ON future_daily(commodity, session, date, contract_month);
 
--- 個股估值快照 (Yahoo Finance)。前瞻本益比只能取得當下的值，每天存一份才能累積歷史。
--- 前瞻 EPS 為分析師共識，通常是下一個會計年度，不是未來 12 個月滾動
-CREATE TABLE IF NOT EXISTS stock_valuation (
-    date            TEXT NOT NULL,
+-- 分析師共識的年度 EPS 預估 (Yahoo Finance)，每天存一份快照才能累積歷史。
+-- Yahoo 只提供今年與明年兩個會計年度，前瞻本益比由收盤價除以這裡的 eps_avg 計算
+CREATE TABLE IF NOT EXISTS eps_estimate (
+    date            TEXT NOT NULL,     -- 抓取日 YYYYMMDD
     code            TEXT NOT NULL,
+    fiscal_year     INTEGER NOT NULL,  -- 會計年度，取自 Yahoo 的年度結束日
     ticker          TEXT NOT NULL,     -- Yahoo 代號，例如 2330.TW、6488.TWO
-    trailing_pe     REAL,              -- 近四季本益比
-    forward_pe      REAL,              -- 前瞻本益比
-    forward_eps     REAL,              -- 共識預估 EPS
+    currency        TEXT NOT NULL DEFAULT 'TWD',  -- Yahoo 原始的計價幣別
+    fx_rate         REAL NOT NULL DEFAULT 1,      -- 換算台幣的匯率，以下 EPS 都已換成台幣
+    eps_avg         REAL,              -- 共識平均 (台幣)
+    eps_low         REAL,
+    eps_high        REAL,
     analysts        INTEGER,           -- 提供預估的分析師人數
     updated_at      TEXT NOT NULL,
-    PRIMARY KEY (date, code)
+    PRIMARY KEY (date, code, fiscal_year)
 );
-CREATE INDEX IF NOT EXISTS idx_stock_valuation_code ON stock_valuation(code, date);
+CREATE INDEX IF NOT EXISTS idx_eps_estimate_code ON eps_estimate(code, date);
 
 -- 每日匯入狀態，供重跑與排錯使用
 CREATE TABLE IF NOT EXISTS ingest_log (

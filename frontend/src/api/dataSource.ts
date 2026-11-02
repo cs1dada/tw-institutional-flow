@@ -22,6 +22,8 @@ import type {
     Meta,
     ThemesData,
     ThemesSnapshot,
+    ValuationIndex,
+    ValuationSnapshot,
 } from "@/types"
 
 const MODE: "api" | "static" = window.APP_MODE === "static" ? "static" : "api"
@@ -57,6 +59,8 @@ const SOURCES = {
         etfTrend: () => versioned("data/etf_trend.json"),
         themes: () => versioned("data/themes.json"),
         themesSnapshot: (date: string) => versioned(`data/themes/${date}.json`),
+        valuation: () => versioned("data/valuation.json"),
+        valuationSnapshot: (date: string) => versioned(`data/valuation/${date}.json`),
     },
     api: {
         meta: () => "/api/meta",
@@ -74,6 +78,8 @@ const SOURCES = {
         etfTrend: () => "/api/etf-trend",
         themes: () => "/api/themes",
         themesSnapshot: (date: string) => `/api/themes/${date}`,
+        valuation: () => "/api/valuation",
+        valuationSnapshot: (date: string) => `/api/valuation/${date}`,
     },
 } as const
 
@@ -110,6 +116,8 @@ const cache: {
     etfTrend: EtfTrendData | null
     themes: ThemesData | null
     themesSnapshots: Map<string, ThemesSnapshot>
+    valuation: ValuationIndex | null
+    valuationSnapshots: Map<string, ValuationSnapshot>
 } = {
     meta: null,
     days: new Map(),
@@ -126,6 +134,8 @@ const cache: {
     etfTrend: null,
     themes: null,
     themesSnapshots: new Map(),
+    valuation: null,
+    valuationSnapshots: new Map(),
 }
 
 export async function loadMeta(): Promise<Meta> {
@@ -289,6 +299,33 @@ export async function loadEtfTrend(): Promise<EtfTrendData> {
     }
     const data = await fetchJson<EtfTrendData>(SOURCES[MODE].etfTrend())
     cache.etfTrend = data
+    return data
+}
+
+/** 估值九宮格的索引：可選日期、題材順序與判定參數 */
+export async function loadValuation(): Promise<ValuationIndex> {
+    if (cache.valuation) {
+        return cache.valuation
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<ValuationIndex>(SOURCES[MODE].valuation())
+    cache.valuation = data
+    return data
+}
+
+/** 估值九宮格的單一日期，切換日期或比較換格時才下載 */
+export async function loadValuationSnapshot(date: string): Promise<ValuationSnapshot> {
+    const cached = cache.valuationSnapshots.get(date)
+    if (cached) {
+        return cached
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<ValuationSnapshot>(SOURCES[MODE].valuationSnapshot(date))
+    cache.valuationSnapshots.set(date, data)
     return data
 }
 

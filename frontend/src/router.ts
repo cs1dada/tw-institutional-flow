@@ -8,6 +8,7 @@ import QuoteView from "@/views/QuoteView.vue"
 import ReportView from "@/views/ReportView.vue"
 import SinoQuoteView from "@/views/SinoQuoteView.vue"
 import ThemesView from "@/views/ThemesView.vue"
+import ValuationView from "@/views/ValuationView.vue"
 import EtfTrendView from "@/views/EtfTrendView.vue"
 import EtfView from "@/views/EtfView.vue"
 
@@ -28,6 +29,7 @@ export const router = createRouter({
         { path: "/sino", component: SinoQuoteView },
         { path: "/index", component: IndexChartView },
         { path: "/themes", component: ThemesView },
+        { path: "/valuation", component: ValuationView },
         { path: "/:pathMatch(.*)*", redirect: "/" },
     ],
 })

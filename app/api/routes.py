@@ -3,7 +3,17 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app import config
 from app.db import connect
-from app.services import dataset, etf_cost, etf_daily, etf_report, etf_trend, history, intraday, themes
+from app.services import (
+    dataset,
+    etf_cost,
+    etf_daily,
+    etf_report,
+    etf_trend,
+    history,
+    intraday,
+    themes,
+    valuation_grid,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -501,6 +511,29 @@ def api_themes():
         return themes.build_structure(conn)
     finally:
         conn.close()
+
+
+@router.get("/valuation")
+def api_valuation():
+    """估值九宮格的索引：可選日期、題材順序與判定參數。"""
+    conn = connect()
+    try:
+        return valuation_grid.build_index(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/valuation/{date}")
+def api_valuation_snapshot(date: str):
+    """單一日期的九宮格：前瞻本益比、合理區間判定與季線位階。"""
+    conn = connect()
+    try:
+        payload = valuation_grid.build_snapshot(conn, date)
+    finally:
+        conn.close()
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"{date} 沒有 EPS 共識快照")
+    return payload
 
 
 @router.get("/themes/{date}")
