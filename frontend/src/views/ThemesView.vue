@@ -5,6 +5,7 @@
  * 分類表 data/themes.json 由人工維護，一檔股票可以同時出現在多個題材或環節，
  * 每次出現各自標註關聯度。分類結構只載入一次，收盤、漲跌與主動式 ETF 持有檔數
  * 依選擇的揭露日另外載入，並列出 ETF 有持有、但分類表還沒收錄的個股。
+ * 前瞻本益比只有最近一次的快照，不隨揭露日切換。
  */
 import { computed, onMounted, ref, watch } from "vue"
 
@@ -21,6 +22,9 @@ const REL_LABELS: Record<ThemeRelevance, string> = {
 const REL_ORDER: Record<ThemeRelevance, number> = { high: 0, mid: 1, low: 2 }
 
 const ALL = "全部"
+
+/** 結構檔沒帶門檻時 (舊版匯出) 的預設值，與後端 MIN_ANALYSTS 一致 */
+const DEFAULT_MIN_ANALYSTS = 3
 
 interface StockRow extends ThemeStockInfo, ThemeStockQuote {
     code: string
@@ -171,6 +175,51 @@ function dateLabel(item: { date: string; etf_count: number }): string {
     return `${formatDate(item.date)} (${item.etf_count} 檔 ETF)`
 }
 
+const minAnalysts = computed(() => data.value?.min_analysts ?? DEFAULT_MIN_ANALYSTS)
+
+/** 最近一次估值的快照日，各股可能不同，取最新的一天 */
+const valuationDate = computed(() => {
+    let latest = ""
+    for (const info of Object.values(data.value?.stocks ?? {})) {
+        if (info.valuation && info.valuation.date > latest) {
+            latest = info.valuation.date
+        }
+    }
+    return latest
+})
+
+/** 分析師人數夠才顯示前瞻本益比，否則參考性太低 */
+function reliableForwardPe(stock: StockRow): number | null {
+    const v = stock.valuation
+    if (!v || v.forward_pe === null || v.forward_pe <= 0) {
+        return null
+    }
+    return (v.analysts ?? 0) >= minAnalysts.value ? v.forward_pe : null
+}
+
+function forwardPeText(stock: StockRow): string {
+    const pe = reliableForwardPe(stock)
+    return pe === null ? "-" : pe.toFixed(1)
+}
+
+function forwardPeTitle(stock: StockRow): string {
+    const v = stock.valuation
+    if (!v) {
+        return "沒有估值資料"
+    }
+    const parts = [
+        `前瞻本益比 ${v.forward_pe ?? "--"} 倍`,
+        `近四季 ${v.trailing_pe ?? "--"} 倍`,
+        `預估 EPS ${v.forward_eps ?? "--"}`,
+        `分析師 ${v.analysts ?? "?"} 位`,
+        `資料日 ${formatDate(v.date)}`,
+    ]
+    if (v.forward_pe !== null && reliableForwardPe(stock) === null) {
+        parts.push(`分析師少於 ${minAnalysts.value} 位，參考性低，不顯示`)
+    }
+    return parts.join("\n")
+}
+
 function toYiText(value: number): string {
     return (value / YI).toFixed(0)
 }
@@ -277,6 +326,9 @@ onMounted(async () => {
             <span v-for="(desc, rel) in data.relevance" :key="rel" class="legend-item">
                 <span class="rel" :class="`rel-${rel}`">{{ REL_LABELS[rel] }}</span>{{ desc }}
             </span>
+            <span v-if="valuationDate" class="legend-item legend-etf">
+                「前瞻 PE」為 {{ formatDate(valuationDate) }} 的分析師共識 (Yahoo Finance)，分析師少於 {{ minAnalysts }} 位不顯示，滑鼠移上去可看細節
+            </span>
             <span v-if="snapshot" class="legend-item legend-etf">
                 「ETF 持有檔數」為 {{ formatDate(snapshot.date) }} 持有這檔股票的主動式 ETF 檔數 (共 {{ snapshot.etf_count }} 檔)
             </span>
@@ -328,7 +380,8 @@ onMounted(async () => {
                                 <th>個股</th>
                                 <th class="num">收盤</th>
                                 <th class="num">漲跌</th>
-                                <th class="num">ETF 持有檔數</th>
+                                <th class="num" title="以分析師共識 EPS 計算，通常是下一個會計年度">前瞻 PE</th>
+                                <th class="num" title="持有這檔股票的主動式 ETF 檔數">ETF 檔數</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -340,6 +393,13 @@ onMounted(async () => {
                                 <td class="num">{{ stock.close?.toLocaleString() ?? "--" }}</td>
                                 <td class="num" :class="changeClass(stock.change_pct)">
                                     {{ signed(stock.change_pct) }}{{ stock.change_pct === null ? "" : "%" }}
+                                </td>
+                                <td
+                                    class="num"
+                                    :class="{ muted: reliableForwardPe(stock) === null }"
+                                    :title="forwardPeTitle(stock)"
+                                >
+                                    {{ forwardPeText(stock) }}
                                 </td>
                                 <td class="num" :class="{ muted: !stock.etf_holders }">{{ stock.etf_holders || "-" }}</td>
                             </tr>
@@ -482,12 +542,15 @@ onMounted(async () => {
 
 .segments {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    /* 卡片內的表格有 6 欄，約需 380px，低於這個寬度會擠出卡片 */
+    grid-template-columns: repeat(auto-fill, minmax(min(400px, 100%), 1fr));
     gap: 12px;
 }
 
 .segment {
     min-width: 0;
+    /* 個股名稱特別長時在卡片內捲動，不溢出到隔壁卡片 */
+    overflow-x: auto;
     padding: 12px 12px 6px;
     border: 1px solid var(--border);
     border-radius: 6px;

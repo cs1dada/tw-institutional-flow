@@ -49,6 +49,10 @@ python scripts/ingest_index.py 202101 202609     # 指定起訖年月
 # 6. 回補個股開高低 (個股 K 線圖用)
 python scripts/backfill_ohlc.py 365               # 最近 365 個日曆日
 python scripts/backfill_ohlc.py 20250101 20260918 # 指定區間
+
+# 7. 抓取題材股的前瞻本益比 (Yahoo Finance，只有當下的值，需每日執行)
+python scripts/ingest_valuation.py
+python scripts/ingest_valuation.py 2330 2454      # 只抓指定幾檔
 ```
 
 `backfill_ohlc.py` 只抓收盤行情、不抓法人買賣超，每個交易日 2 個請求
@@ -258,7 +262,7 @@ cd docs && python -m http.server 8010
 
 `scripts/daily_job.py` 會依序完成：個股主檔過期時重新抓取、匯入今日資料、
 抓取主動式 ETF 持股、更新大盤指數日線、補抓近 7 天內資料不齊全的工作日
-（只收錄到單一市場、排程太早而查無資料，或當天沒有執行）。
+（只收錄到單一市場、排程太早而查無資料，或當天沒有執行），最後抓取題材股的前瞻本益比。
 指數在資料庫尚無任何資料時會自動回補最近 120 個月，之後每天只重抓最近兩個月。
 
 線上的靜態網站由 GitHub Actions 每日自動更新（`.github/workflows/daily.yml`，
@@ -639,6 +643,14 @@ B 檔是 09-09，直接比對會讓 A 檔的所有持股都被誤判為「新進
 頁面可選揭露日，顯示當日收盤、漲跌與被幾檔主動式 ETF 持有，最下方列出 ETF 有持有、但分類表還沒收錄的個股，
 方便補齊。分類表修改後，本機重新整理即可看到；線上要等下一次每日排程匯出。
 一檔股票屬於多個題材時，各題材的 ETF 持股市值會重複計算，不可加總。
+
+個股另外顯示前瞻本益比 (`scripts/ingest_valuation.py`，已納入 `daily_job.py`)。
+證交所與櫃買只提供近四季本益比，前瞻本益比需要分析師共識 EPS，因此改用 Yahoo Finance (yfinance)，
+存在 `stock_valuation` 資料表，每天一份快照。要注意：
+
+- 前瞻 EPS 通常是下一個會計年度的共識，不是未來 12 個月滾動
+- 分析師少於 3 位時數字常常離譜 (例如 1 位分析師給出 600 多倍)，頁面上不顯示，滑鼠移上去仍可看到原始值
+- 非官方介面，可能限流或改版。`daily_job.py` 中這一步失敗只記錄錯誤、不中斷排程，頁面沿用最近一次的值
 
 靜態匯出時結構只有一個檔 (`themes.json`)，數字每個揭露日一個檔 (`themes/YYYYMMDD.json`，約 17 KB)，
 與 ETF 日報一樣保留最近 120 個揭露日。

@@ -9,7 +9,7 @@
 
 輸出分成兩份，分類結構只有一份，數字依日期各一份，切換日期時只需下載當日的小檔：
 
-- 結構：分類表、個股名稱與證交所產業別、可選的揭露日
+- 結構：分類表、個股名稱與證交所產業別、最近一次的估值 (前瞻本益比)、可選的揭露日
 - 當日數字：收盤、漲跌幅、被幾檔主動式 ETF 持有，以及 ETF 有持有、但分類表還沒收錄的個股
 
 本機 API 與靜態匯出共用這裡的函式，兩種模式的格式一致。
@@ -18,6 +18,7 @@ import json
 
 from app import config
 from app.services.etf_cost import domestic_etfs
+from app.services.valuation import MIN_ANALYSTS, latest_valuations
 
 THEMES_PATH = config.DATA_DIR / "themes.json"
 
@@ -27,7 +28,7 @@ def load_themes():
         return json.load(f)
 
 
-def _classified_codes(themes):
+def classified_codes(themes):
     return {s["code"] for theme in themes["themes"] for seg in theme["segments"] for s in seg["stocks"]}
 
 
@@ -100,14 +101,21 @@ def build_structure(conn):
     themes = load_themes()
     info = _stock_info(conn)
     ctx = _Context(conn)
+    codes = sorted(classified_codes(themes))
+    valuations = latest_valuations(conn, codes)
     return {
         "updated": themes["updated"],
         "relevance": themes["relevance"],
+        "min_analysts": MIN_ANALYSTS,
         "dates": [{"date": date, "etf_count": count} for date, count in ctx.dates],
         "themes": themes["themes"],
         "stocks": {
-            code: {"name": info.get(code, (None, None))[0], "industry": info.get(code, (None, None))[1]}
-            for code in sorted(_classified_codes(themes))
+            code: {
+                "name": info.get(code, (None, None))[0],
+                "industry": info.get(code, (None, None))[1],
+                "valuation": valuations.get(code),
+            }
+            for code in codes
         },
     }
 
@@ -138,7 +146,7 @@ def build_snapshot(conn, date):
     ctx = _Context(conn)
     if date not in ctx.etf_count:
         return None
-    return _build_snapshot(ctx, date, _classified_codes(load_themes()), _stock_info(conn))
+    return _build_snapshot(ctx, date, classified_codes(load_themes()), _stock_info(conn))
 
 
 def build_all(conn, limit=None):

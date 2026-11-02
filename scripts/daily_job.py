@@ -8,10 +8,12 @@
 4. 更新大盤指數日線 (證交所以月為單位提供，重抓最近兩個月即可)
 5. 補抓近 7 天內資料不齊全的工作日
    (上市約 16:00 才公布，排程跑得早會只拿到上櫃或整天沒有資料)
+6. 抓取題材股的前瞻本益比 (Yahoo Finance)，失敗時只記錄、不中斷排程
 
 用法：
     python scripts/daily_job.py
 """
+import logging
 import time
 from datetime import date, datetime, timedelta
 
@@ -25,6 +27,9 @@ from app.services.etf_ingest import ingest_etf_holdings
 from app.services.etf_manual import import_manual
 from app.services.index_ingest import ingest_index_months
 from app.services.ingest import ingest_date, update_stock_info
+from app.services.valuation import ingest_theme_valuations
+
+logger = logging.getLogger(__name__)
 
 STOCK_INFO_MAX_AGE_DAYS = 7
 RECHECK_DAYS = 7
@@ -97,6 +102,18 @@ def index_months(conn):
     return INDEX_BACKFILL_MONTHS
 
 
+def update_valuations(conn):
+    """題材股估值來自非官方介面，可能限流或改版，失敗時頁面沿用前一次的值。"""
+    try:
+        stats = ingest_theme_valuations(conn)
+    except Exception:
+        logger.exception("題材股估值抓取失敗")
+        return
+    print(f"題材股估值 {stats['saved']} / {stats['total']} 檔，{stats['forward_pe']} 檔有前瞻本益比")
+    if stats["errors"]:
+        print(f"  抓取失敗：{' '.join(stats['errors'])}")
+
+
 def main():
     init_schema()
     conn = connect()
@@ -129,6 +146,8 @@ def main():
             print(f"補抓 {date_str}，共 {count} 筆")
         if not pending:
             print("近期無資料不齊全的日期")
+
+        update_valuations(conn)
     finally:
         conn.close()
 

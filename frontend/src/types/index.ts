@@ -765,15 +765,32 @@ export interface Theme {
     segments: ThemeSegment[]
 }
 
+/** 最近一次的估值快照 (Yahoo Finance 分析師共識) */
+export interface ThemeStockValuation {
+    /** 快照日期 YYYYMMDD */
+    date: string
+    /** 近四季本益比 */
+    trailing_pe: number | null
+    /** 前瞻本益比，通常以下一個會計年度的共識 EPS 計算 */
+    forward_pe: number | null
+    forward_eps: number | null
+    /** 提供預估的分析師人數 */
+    analysts: number | null
+}
+
 export interface ThemeStockInfo {
     name: string | null
     industry: string | null
+    /** 只有分類表收錄的個股才有，尚未抓過時為 null */
+    valuation?: ThemeStockValuation | null
 }
 
 /** 分類結構與可選的揭露日 */
 export interface ThemesData {
     updated: string
     relevance: Record<ThemeRelevance, string>
+    /** 分析師少於這個人數時不顯示前瞻本益比 */
+    min_analysts?: number
     dates: { date: string; etf_count: number }[]
     themes: Theme[]
     stocks: Record<string, ThemeStockInfo>
