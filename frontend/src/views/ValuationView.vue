@@ -122,6 +122,71 @@ const DEFAULT_THEME = "晶圓代工"
 /** 落點變化的比較間隔：取選定日期往前至少這麼多個日曆日的快照 */
 const COMPARE_DAYS = 7
 
+/* ===== 短線／長線角度 ===== */
+
+/** all：綜合 (只看狀態)；short：短線看走勢；long：長線看估值 */
+type Perspective = "all" | "short" | "long"
+type Horizon = Exclude<Perspective, "all">
+type Stance = "prefer" | "conditional" | "wait" | "avoid"
+
+interface StanceDef {
+    stance: Stance
+    advice: string
+}
+
+const PERSPECTIVES: { key: Perspective; label: string }[] = [
+    { key: "all", label: "綜合" },
+    { key: "short", label: "短線" },
+    { key: "long", label: "長線" },
+]
+
+const HORIZON_LABELS: Record<Horizon, string> = { short: "短線", long: "長線" }
+
+const HORIZON_NOTES: Record<Horizon, string> = {
+    short: "短線 (幾天到幾週) 賺的是趨勢延續，看橫軸：偏好均線上方，避開均線下方",
+    long: "長線 (幾季到幾年) 賺的是獲利成長與估值回歸，看縱軸：偏好便宜，避開偏貴",
+}
+
+const STANCE_LABELS: Record<Stance, string> = {
+    prefer: "偏好",
+    conditional: "有條件",
+    wait: "觀望",
+    avoid: "避開",
+}
+
+const STANCES: Record<Horizon, Record<CellKey, StanceDef>> = {
+    short: {
+        "strong-low": { stance: "prefer", advice: "趨勢與估值同向，可順勢操作；避免追在急漲後，可等回測均線不破再進" },
+        "strong-fair": { stance: "prefer", advice: "趨勢延續中，跌破均線前可續抱，以均線作為出場參考" },
+        "strong-high": { stance: "conditional", advice: "可以順勢，但部位要小、停損要明確，財報與法說前後波動大" },
+        "ma-low": { stance: "wait", advice: "還沒有方向，等帶量站穩均線、轉到均線上方再進場" },
+        "ma-fair": { stance: "wait", advice: "沒有方向也沒有估值優勢，等突破或跌破表態" },
+        "ma-high": { stance: "conditional", advice: "只有真的突破才有短線機會，估值偏貴時假突破的風險較高" },
+        "repair-low": { stance: "avoid", advice: "趨勢向下，便宜不是短線進場的理由，等站回均線" },
+        "repair-fair": { stance: "avoid", advice: "趨勢向下，不搶反彈，等止跌訊號" },
+        "repair-high": { stance: "avoid", advice: "下跌加上估值修正，最容易續跌" },
+    },
+    long: {
+        "strong-low": { stance: "prefer", advice: "估值仍有空間，走勢也確認，可建立部位；已有漲幅時分批進場" },
+        "ma-low": { stance: "prefer", advice: "估值便宜且在整理，適合分批布局，前提是預估 EPS 可信" },
+        "repair-low": {
+            stance: "conditional",
+            advice: "可小量分批，先確認 EPS 預估沒有往下修、不是景氣高點造成的假便宜",
+        },
+        "strong-fair": { stance: "wait", advice: "已持有可續抱，新買進的報酬空間有限，等拉回或估值降到區間下緣" },
+        "ma-fair": { stance: "wait", advice: "價格合理但沒有安全邊際，等更好的價位" },
+        "repair-fair": { stance: "wait", advice: "持續下跌時可能跌到便宜區，到時再評估" },
+        "strong-high": { stance: "avoid", advice: "價格已反映高成長，報酬取決於成長能否兌現，不追" },
+        "ma-high": { stance: "avoid", advice: "估值偏貴，等本益比回到區間內" },
+        "repair-high": { stance: "avoid", advice: "估值仍貴且在修正，等回到區間內再評估" },
+    },
+}
+
+/** 綜合角度時回傳 null */
+function stanceOf(key: CellKey): StanceDef | null {
+    return perspective.value === "all" ? null : STANCES[perspective.value][key]
+}
+
 const index = ref<ValuationIndex | null>(null)
 const snapshot = ref<ValuationSnapshot | null>(null)
 const compareSnapshot = ref<ValuationSnapshot | null>(null)
@@ -130,6 +195,7 @@ const error = ref<string | null>(null)
 const year = ref("")
 const theme = ref(ALL)
 const query = ref("")
+const perspective = ref<Perspective>("all")
 
 type SortKey =
     | "code"
@@ -236,6 +302,98 @@ function otherLevel(stock: ValuationStock): ValuationLevel | null {
     return now && other && now !== other ? other : null
 }
 
+/* ===== 個股解讀 ===== */
+
+/** 使用者點選的個股；沒有點選時不顯示解讀 */
+const pickedCode = ref<string | null>(null)
+
+/** 點同一檔再點一次收起，點其他檔則切換 */
+function pick(code: string) {
+    pickedCode.value = pickedCode.value === code ? null : code
+}
+
+/** 點選的個股；切換題材、年度後不在矩陣中時視同收起 */
+const explainStock = computed<ValuationStock | null>(() =>
+    filtered.value.find((s) => s.code === pickedCode.value && cellKey(s, year.value)) ?? null,
+)
+
+const POSITION_TEXT: Record<ValuationLevel, string> = {
+    low: "低於下緣",
+    fair: "落在區間內",
+    high: "高於上緣",
+}
+
+function num(value: number | null | undefined, digits = 2): string {
+    if (value === null || value === undefined) {
+        return "--"
+    }
+    return value.toLocaleString(undefined, { maximumFractionDigits: digits })
+}
+
+interface ExplainLine {
+    label: string
+    text: string
+}
+
+/** 以選定年度說明本益比、估值、走勢與落點的由來 */
+const explainLines = computed<ExplainLine[]>(() => {
+    const stock = explainStock.value
+    const item = yearOf(stock, year.value)
+    const key = cellKey(stock, year.value)
+    if (!stock || !item || !key || !index.value) {
+        return []
+    }
+    const level = item.valuation as ValuationLevel
+    const lines: ExplainLine[] = [
+        {
+            label: "本益比",
+            text: `${peText(item)} = 收盤 ${num(stock.close)} 元 ÷ ${year.value} 年預估 EPS ${num(item.eps)} 元`
+                + ` (分析師 ${item.analysts ?? "?"} 位的共識)`,
+        },
+    ]
+    if (stock.band) {
+        const edge = item.near_edge ? `，距邊界 ${index.value.edge_pct}% 以內，股價小幅變動就可能換格` : ""
+        lines.push({
+            label: "估值",
+            text: `「${stock.segment}」的合理區間 ${stock.band[0]}～${stock.band[1]} 倍`
+                + `${stock.band_source === "stock" ? " (個股另外設定)" : ""}，`
+                + `${peText(item)} ${POSITION_TEXT[level]}，判定為${LEVEL_LABELS[level]}${edge}`,
+        })
+    }
+    const zone = stock.zone as PriceZone
+    lines.push({
+        label: "走勢",
+        text: `收盤 ${num(stock.close)} 元，${index.value.ma_days} 日均線 ${num(stock.ma60)} 元，`
+            + `距離 ${pctText(stock.dist_ma_pct)}；門檻為 ±${index.value.zone_pct}%，屬於${ZONE_LABELS[zone]}`,
+    })
+    lines.push({
+        label: "落點",
+        text: `${LEVEL_LABELS[level]} × ${ZONE_LABELS[zone]} = 「${CELLS[key].name}」：${CELLS[key].meaning}`,
+    })
+    lines.push({ label: "留意", text: CELLS[key].caution })
+    // 綜合角度時兩種都列，選了角度時只列該角度
+    const horizons: Horizon[] = perspective.value === "all" ? ["short", "long"] : [perspective.value]
+    for (const horizon of horizons) {
+        const def = STANCES[horizon][key]
+        lines.push({ label: HORIZON_LABELS[horizon], text: `${STANCE_LABELS[def.stance]}：${def.advice}` })
+    }
+    const other = yearOf(stock, otherYear.value)
+    if (otherYear.value && other) {
+        if (other.valuation) {
+            const same = other.valuation === level
+            lines.push({
+                label: `${otherYear.value} 年`,
+                text: `改用 ${otherYear.value} 年預估 EPS ${num(other.eps)} 元，本益比 ${peText(other)}，`
+                    + `判定為${LEVEL_LABELS[other.valuation]}`
+                    + (same ? "，跟選定年度相同" : "，跟選定年度不同，卡片上會標示"),
+            })
+        } else {
+            lines.push({ label: `${otherYear.value} 年`, text: `沒有判定 (${skipText(other)})` })
+        }
+    }
+    return lines
+})
+
 /* ===== 近一週落點變化 ===== */
 
 /** 選定日期往前至少 COMPARE_DAYS 天的快照；不足一週時取最早的一份 */
@@ -323,6 +481,10 @@ function skipText(item: ValuationYear | null): string {
 
 function cellTitle(key: CellKey): string {
     const cell = CELLS[key]
+    const stance = stanceOf(key)
+    if (stance && perspective.value !== "all") {
+        return `${cell.meaning}\n${HORIZON_LABELS[perspective.value]}${STANCE_LABELS[stance.stance]}：${stance.advice}`
+    }
     return `${cell.meaning}\n留意：${cell.caution}`
 }
 
@@ -514,6 +676,22 @@ onMounted(async () => {
                     {{ y }} 年 EPS
                 </button>
             </div>
+            <div class="control">
+                <span class="control-label">角度</span>
+                <div class="tabs" role="tablist" aria-label="操作角度">
+                    <button
+                        v-for="item in PERSPECTIVES"
+                        :key="item.key"
+                        type="button"
+                        class="tab"
+                        :class="{ 'is-active': perspective === item.key }"
+                        role="tab"
+                        @click="perspective = item.key"
+                    >
+                        {{ item.label }}
+                    </button>
+                </div>
+            </div>
             <label class="control">
                 <span class="control-label">題材</span>
                 <select v-model="theme">
@@ -527,6 +705,10 @@ onMounted(async () => {
         </div>
 
         <section v-if="index && snapshot" class="panel" data-nav="矩陣">
+            <p v-if="perspective !== 'all'" class="perspective-note">
+                <strong>{{ HORIZON_LABELS[perspective] }}角度</strong>{{ HORIZON_NOTES[perspective] }}。
+                格子標示偏好、有條件、觀望或避開，避開的格子會淡化
+            </p>
             <div class="matrix-wrap">
                 <div class="matrix">
                     <div class="y-caption">
@@ -543,12 +725,22 @@ onMounted(async () => {
                             v-for="(zone, col) in ZONE_COLS"
                             :key="`${zone}-${level}`"
                             class="cell"
-                            :class="`tone-${CELLS[`${zone}-${level}`].tone}`"
+                            :class="[
+                                `tone-${CELLS[`${zone}-${level}`].tone}`,
+                                stanceOf(`${zone}-${level}`) ? `stance-${stanceOf(`${zone}-${level}`)!.stance}` : '',
+                            ]"
                             :style="{ gridRow: row + 1, gridColumn: col + 3 }"
                         >
                             <div class="cell-head" :title="cellTitle(`${zone}-${level}`)">
                                 <strong>{{ CELLS[`${zone}-${level}`].name }}</strong>
                                 <span class="cell-axis">{{ LEVEL_LABELS[level] }}・{{ ZONE_LABELS[zone] }}</span>
+                                <span
+                                    v-if="stanceOf(`${zone}-${level}`)"
+                                    class="stance-badge"
+                                    :class="`badge-${stanceOf(`${zone}-${level}`)!.stance}`"
+                                >
+                                    {{ HORIZON_LABELS[perspective as Horizon] }}{{ STANCE_LABELS[stanceOf(`${zone}-${level}`)!.stance] }}
+                                </span>
                                 <span class="cell-count">{{ cellStocks(zone, level).length }}</span>
                             </div>
                             <ul v-if="cellStocks(zone, level).length" class="chips">
@@ -556,7 +748,13 @@ onMounted(async () => {
                                     v-for="stock in cellStocks(zone, level)"
                                     :key="stock.code"
                                     class="chip"
+                                    :class="{ 'is-picked': stock.code === explainStock?.code }"
                                     :title="stockTitle(stock)"
+                                    role="button"
+                                    tabindex="0"
+                                    :aria-expanded="stock.code === explainStock?.code"
+                                    @click="pick(stock.code)"
+                                    @keydown.enter="pick(stock.code)"
                                 >
                                     <span class="chip-name">{{ stock.name }}</span>
                                     <span class="chip-pe">
@@ -594,10 +792,40 @@ onMounted(async () => {
                 </div>
             </div>
 
+            <div v-if="explainStock && explainLines.length" class="explain">
+                <div class="explain-head">
+                    <span class="explain-title">個股解讀</span>
+                    <strong>{{ explainStock.code }} {{ explainStock.name }}</strong>
+                    <span class="muted">{{ explainStock.theme }}／{{ explainStock.segment }}</span>
+                    <span class="explain-hint">點其他檔切換，再點同一檔收起</span>
+                    <button type="button" class="explain-close" aria-label="收起個股解讀" @click="pickedCode = null">
+                        收起
+                    </button>
+                </div>
+                <div class="explain-sample">
+                    <span class="explain-sample-label">卡片上的</span>
+                    <span class="chip">
+                        <span class="chip-name">{{ explainStock.name }}</span>
+                        <span class="chip-pe">{{ peText(yearOf(explainStock, year)) }}</span>
+                        <span class="chip-dist" :class="changeClass(explainStock.dist_ma_pct)">
+                            {{ pctText(explainStock.dist_ma_pct) }}
+                        </span>
+                    </span>
+                    <span class="muted">
+                        依序是名稱、{{ year }} 年前瞻本益比、收盤距 {{ index.ma_days }} 日均線
+                        (<span class="val-buy">紅字</span>在均線之上、<span class="val-sell">綠字</span>在均線之下)
+                    </span>
+                </div>
+                <dl class="explain-list">
+                    <template v-for="line in explainLines" :key="line.label">
+                        <dt>{{ line.label }}</dt>
+                        <dd>{{ line.text }}</dd>
+                    </template>
+                </dl>
+            </div>
+
             <ul class="legend">
-                <li>
-                    每檔顯示 {{ year }} 年前瞻本益比與距均線，<span class="val-buy">紅字</span>在均線之上、<span class="val-sell">綠字</span>在均線之下
-                </li>
+                <li>點矩陣中的個股，可展開本益比、估值與走勢的計算說明</li>
                 <li>
                     <sup class="chip-edge">邊</sup> 本益比距合理區間邊界 {{ index.edge_pct }}% 以內，股價小幅變動就可能換到相鄰的格子
                 </li>
@@ -615,6 +843,7 @@ onMounted(async () => {
                     縱軸看估值：前瞻本益比跟所屬環節的合理區間比，越上面越貴。
                     橫軸看走勢：收盤跟 {{ index.ma_days }} 日均線比，越右邊越強。
                     右下角是估值與走勢都有利的位置，左上角則兩者都不利。滑鼠移到格子標題上也能看到說明。
+                    上方「角度」切換到短線或長線，表格會改列該角度的看法。
                 </p>
                 <div class="guide-wrap">
                     <table class="data-table guide-table">
@@ -623,7 +852,8 @@ onMounted(async () => {
                                 <th>狀態</th>
                                 <th>估值・走勢</th>
                                 <th>代表什麼</th>
-                                <th>留意</th>
+                                <th v-if="perspective === 'all'">留意</th>
+                                <th v-else>{{ HORIZON_LABELS[perspective] }}看法</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -636,7 +866,13 @@ onMounted(async () => {
                                     {{ LEVEL_LABELS[key.split("-")[1] as ValuationLevel] }}・{{ ZONE_LABELS[key.split("-")[0] as PriceZone] }}
                                 </td>
                                 <td>{{ CELLS[key].meaning }}</td>
-                                <td>{{ CELLS[key].caution }}</td>
+                                <td v-if="!stanceOf(key)">{{ CELLS[key].caution }}</td>
+                                <td v-else>
+                                    <span class="stance-badge" :class="`badge-${stanceOf(key)!.stance}`">
+                                        {{ STANCE_LABELS[stanceOf(key)!.stance] }}
+                                    </span>
+                                    {{ stanceOf(key)!.advice }}
+                                </td>
                             </tr>
                         </tbody>
                     </table>
@@ -1007,6 +1243,162 @@ onMounted(async () => {
 
 .x-caption span:last-child::after {
     content: " →";
+}
+
+/* ===== 短線／長線角度 ===== */
+
+.perspective-note {
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: var(--surface-0);
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.perspective-note strong {
+    margin-right: 8px;
+    color: var(--text-primary);
+}
+
+.stance-badge {
+    padding: 0 6px;
+    border: 1px solid currentcolor;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.badge-prefer {
+    border-color: var(--text-primary);
+    background: var(--text-primary);
+    color: var(--surface-1);
+}
+
+.badge-conditional {
+    color: var(--series-trust);
+}
+
+.badge-wait {
+    color: var(--text-muted);
+}
+
+.badge-avoid {
+    color: var(--text-muted);
+    text-decoration: line-through;
+}
+
+/* 偏好的格子加粗外框，避開的格子淡化，文字仍可閱讀 */
+.cell.stance-prefer {
+    position: relative;
+    z-index: 1;
+    box-shadow: inset 0 0 0 2px var(--text-primary);
+}
+
+.cell.stance-avoid {
+    opacity: 0.45;
+}
+
+.cell.stance-avoid:hover {
+    opacity: 1;
+}
+
+.guide-table .stance-badge {
+    margin-right: 6px;
+}
+
+.chips .chip {
+    cursor: pointer;
+}
+
+.chips .chip:hover {
+    border-color: var(--text-muted);
+}
+
+.chips .chip.is-picked {
+    border-color: var(--text-primary);
+    box-shadow: 0 0 0 1px var(--text-primary);
+}
+
+/* ===== 個股解讀 ===== */
+
+.explain {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-0);
+    font-size: 13px;
+}
+
+.explain-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+}
+
+.explain-title {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.explain-head strong {
+    font-size: 15px;
+}
+
+.explain-hint {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.explain-close {
+    padding: 2px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-1);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.explain-close:hover {
+    border-color: var(--text-muted);
+    color: var(--text-primary);
+}
+
+.explain-sample {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin: 10px 0;
+    font-size: 12px;
+}
+
+.explain-sample-label {
+    color: var(--text-secondary);
+}
+
+.explain-list {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 14px;
+    margin: 0;
+    line-height: 1.6;
+}
+
+.explain-list dt {
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.explain-list dd {
+    margin: 0;
+    color: var(--text-primary);
 }
 
 /* ===== 圖例與說明 ===== */
