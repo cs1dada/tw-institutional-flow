@@ -871,12 +871,12 @@ export interface EtfTrendData {
     windows: Record<string, EtfTrendWindow>
 }
 
-/* ===== 估值九宮格 ===== */
+/* ===== 估值趨勢矩陣 ===== */
 
 /** 估值判定：相對低估、合理、相對高估 */
 export type ValuationLevel = "low" | "fair" | "high"
 
-/** 位階：強勢區 (季線之上 5% 以上)、季線區、修復區 (季線之下 5% 以上) */
+/** 走勢：strong 均線上方 (高於 5% 以上)、ma 均線附近、repair 均線下方 (低於 5% 以上) */
 export type PriceZone = "strong" | "ma" | "repair"
 
 /** 不判定的原因 */
@@ -927,7 +927,7 @@ export interface ValuationIndex {
     min_analysts: number
 }
 
-/** 單一日期的九宮格 */
+/** 單一日期的矩陣 */
 export interface ValuationSnapshot {
     date: string
     estimate_date: string

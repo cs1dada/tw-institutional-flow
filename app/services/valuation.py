@@ -1,6 +1,6 @@
 """題材分類個股的年度 EPS 共識快照。
 
-資料來自 Yahoo Finance，只能取得當下的值，每天存一份。前瞻本益比在估值九宮格
+資料來自 Yahoo Finance，只能取得當下的值，每天存一份。前瞻本益比在估值趨勢矩陣
 (valuation_grid.py) 才以當日收盤計算，這裡只負責抓取與讀取預估值。
 """
 import logging

@@ -1,11 +1,11 @@
-"""估值九宮格：前瞻本益比 × 股價相對季線的位置。
+"""估值趨勢矩陣：前瞻本益比 × 股價相對 60 日均線的位置。
 
-橫軸 (估值)：前瞻本益比 = 最新收盤 ÷ 分析師共識 EPS，與所屬環節的合理區間比較，
-低於下緣為相對低估、高於上緣為相對高估，其餘為合理。合理區間人工維護在
+估值：前瞻本益比 = 最新收盤 ÷ 分析師共識 EPS，與所屬環節的合理區間比較，
+低於下緣為便宜 (low)、高於上緣為偏貴 (high)，其餘為合理 (fair)。合理區間人工維護在
 data/valuation_bands.json。
 
-縱軸 (位階)：收盤相對 60 日均線 (季線) 的距離，高於 +5% 為強勢區、
-低於 -5% 為修復區，其餘為季線區。
+走勢：收盤相對 60 日均線的距離，高於 +5% 為均線上方 (strong)、
+低於 -5% 為均線下方 (repair)，其餘為均線附近 (ma)。
 
 Yahoo 只提供今年與明年兩個會計年度的預估，兩年各判定一次，前端可切換。
 分析師少於 MIN_ANALYSTS 位、EPS 為負或沒有預估時，該年度不判定。
@@ -207,7 +207,7 @@ def _build_snapshot(conn, date, estimate_date, themes, bands):
 
 
 def build_snapshot(conn, date):
-    """單一日期的九宮格，日期不在可選範圍內時回傳 None。"""
+    """單一日期的矩陣，日期不在可選範圍內時回傳 None。"""
     pairs = {item["date"]: item["estimate_date"] for item in snapshot_dates(conn)}
     if date not in pairs:
         return None

@@ -137,7 +137,7 @@ def export_themes(conn, days):
 
 
 def export_valuation(conn, days):
-    """估值九宮格：索引一個檔，每個日期一個檔，整批重建。"""
+    """估值趨勢矩陣：索引一個檔，每個日期一個檔，整批重建。"""
     index, snapshots = valuation_grid.build_all(conn, limit=days)
     size = write_json(DATA_DIR / "valuation.json", index)
     print(f"valuation.json  {size / 1024:.1f} KB")

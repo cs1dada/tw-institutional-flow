@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
- * 估值九宮格：前瞻本益比 × 股價相對季線的位置。
+ * 估值趨勢矩陣：前瞻本益比 × 股價相對 60 日均線的位置。
  *
- * 橫軸是前瞻本益比與所屬環節合理區間的比較 (相對低估／合理／相對高估)，
- * 縱軸是收盤相對 60 日均線的距離 (強勢區／季線區／修復區)，九格各有一個操作提示。
+ * 縱軸是前瞻本益比與所屬環節合理區間的比較 (由上而下為偏貴、合理、便宜)，
+ * 橫軸是收盤相對 60 日均線的距離 (由左而右為均線下方、附近、上方)，
+ * 讀法跟散布圖一樣：越上面越貴、越右邊走勢越強。每格標示一個狀態描述。
  * 判定都在後端算好 (app/services/valuation_grid.py)，這裡只負責呈現、切換日期與年度、篩選，
- * 以及比較選定日期與約一週前的快照，列出換格的個股。
+ * 以及比較選定日期與約一週前的快照，列出落點改變的個股。
  */
 import { computed, onMounted, ref, watch } from "vue"
 
@@ -20,126 +21,105 @@ import type {
 } from "@/types"
 import { formatDate, signed } from "@/utils/format"
 
-interface Axis<T> {
-    key: T
-    label: string
-}
+/** focus：可優先研究；check：要另外驗證；neutral：沒有明顯訊號；weak：條件最弱 */
+type Tone = "focus" | "check" | "neutral" | "weak"
 
 interface CellDef {
     name: string
-    action: string
-    /** good：值得留意；warn：要驗證；avoid：避開；plain：觀望 */
-    tone: "good" | "warn" | "avoid" | "plain"
+    tone: Tone
     /** 這格代表的狀態 */
     meaning: string
-    /** 建議的做法 */
-    howto: string
+    /** 需要留意的地方 */
+    caution: string
 }
 
 type CellKey = `${PriceZone}-${ValuationLevel}`
 
-const LEVELS: Axis<ValuationLevel>[] = [
-    { key: "low", label: "相對低估" },
-    { key: "fair", label: "合理估值" },
-    { key: "high", label: "相對高估" },
-]
+/** 由上而下：越上面越貴 */
+const LEVEL_ROWS: ValuationLevel[] = ["high", "fair", "low"]
+/** 由左而右：越右邊走勢越強 */
+const ZONE_COLS: PriceZone[] = ["repair", "ma", "strong"]
 
-const LEVEL_LABELS: Record<ValuationLevel, string> = { low: "相對低估", fair: "合理估值", high: "相對高估" }
+const LEVEL_LABELS: Record<ValuationLevel, string> = { low: "便宜", fair: "合理", high: "偏貴" }
+const LEVEL_NOTES: Record<ValuationLevel, string> = {
+    low: "低於區間下緣",
+    fair: "落在區間內",
+    high: "高於區間上緣",
+}
 
-const ZONES: Axis<PriceZone>[] = [
-    { key: "strong", label: "強勢區" },
-    { key: "ma", label: "季線區" },
-    { key: "repair", label: "修復區" },
-]
+const ZONE_LABELS: Record<PriceZone, string> = { strong: "均線上方", ma: "均線附近", repair: "均線下方" }
 
-const ZONE_LABELS: Record<PriceZone, string> = { strong: "強勢區", ma: "季線區", repair: "修復區" }
+const TONE_LABELS: Record<Tone, string> = {
+    focus: "優先研究",
+    check: "需要驗證",
+    neutral: "中性",
+    weak: "條件最弱",
+}
 
-/** 依九宮格由左上到右下的順序，換格清單也照這個順序排 */
 const CELLS: Record<CellKey, CellDef> = {
-    "strong-low": {
-        name: "拉回候選",
-        action: "接",
-        tone: "good",
-        meaning: "股價已經在漲，但本益比還在區間下緣以下，代表獲利成長比股價漲得快",
-        howto: "不追高，等拉回季線附近再承接。這格通常很少股票",
-    },
-    "strong-fair": {
-        name: "趨勢持有",
-        action: "拿",
-        tone: "good",
-        meaning: "趨勢向上、估值在合理範圍，漲勢有基本面支撐",
-        howto: "已經持有的續抱，讓獲利跑",
-    },
-    "strong-high": {
-        name: "高預期",
-        action: "跟",
-        tone: "warn",
-        meaning: "股價強，但估值已經超過區間上緣，市場給的預期很高",
-        howto: "可以順勢跟，但要設停損，財報或展望不如預期時跌幅會很大",
-    },
-    "ma-low": {
-        name: "突破候選",
-        action: "攻",
-        tone: "good",
-        meaning: "估值便宜，股價在季線附近整理，下檔有估值撐著",
-        howto: "風險報酬比最好的一格，可以主動布局，站穩季線後轉強就是進場點",
-    },
-    "ma-fair": {
-        name: "等待表態",
-        action: "看",
-        tone: "plain",
-        meaning: "估值和走勢都沒有明顯優勢",
-        howto: "觀察，等它往強勢區或修復區表態",
+    "repair-high": {
+        name: "溢價修正",
+        tone: "weak",
+        meaning: "本益比高於區間，股價又落在均線下方，估值和走勢都不站在這邊",
+        caution: "估值還有往區間回落的空間，等本益比回到區間內再重新評估",
     },
     "ma-high": {
-        name: "突破確認",
-        action: "驗",
-        tone: "warn",
-        meaning: "估值偏貴，股價卻還在季線附近",
-        howto: "先驗證：要真的突破、市場願意接受高估值，才考慮進場",
+        name: "溢價整理",
+        tone: "check",
+        meaning: "本益比高於區間，股價在均線附近來回",
+        caution: "需要新的成長理由才撐得住估值，留意法說會與月營收是否支持",
     },
-    "repair-low": {
-        name: "修復候選",
-        action: "等",
-        tone: "good",
-        meaning: "估值已經便宜，但股價還在跌",
-        howto: "便宜可能更便宜，等止跌或站回季線再進場，不要接刀子",
+    "strong-high": {
+        name: "溢價上行",
+        tone: "check",
+        meaning: "股價走在均線上方，本益比已經超過區間，市場給了很高的期待",
+        caution: "期待落空時修正幅度通常較大，持有時要先想好出場條件",
     },
     "repair-fair": {
-        name: "等待止跌",
-        action: "守",
-        tone: "plain",
-        meaning: "估值不貴，但趨勢還沒止穩",
-        howto: "先守住，空手的不急著進，持有的注意停損",
+        name: "合理轉弱",
+        tone: "neutral",
+        meaning: "本益比在區間內，但股價跌到均線下方，走勢還沒止穩",
+        caution: "觀察能否止跌並重新站回均線，在那之前不急著判斷",
     },
-    "repair-high": {
-        name: "低優先區",
-        action: "避",
-        tone: "avoid",
-        meaning: "股價在跌、估值又貴，最差的組合",
-        howto: "避開，等它掉回合理區間再評估",
+    "ma-fair": {
+        name: "中性整理",
+        tone: "neutral",
+        meaning: "本益比在區間內，股價也在均線附近，估值和走勢都沒有明顯訊號",
+        caution: "等股價離開均線、往上或往下表態後再看",
+    },
+    "strong-fair": {
+        name: "合理上行",
+        tone: "focus",
+        meaning: "本益比在區間內，股價走在均線上方，上漲有獲利預估支撐",
+        caution: "留意本益比是否逼近區間上緣，越靠近上緣，再往上的空間越小",
+    },
+    "repair-low": {
+        name: "價值探底",
+        tone: "check",
+        meaning: "本益比已低於區間，股價卻仍在均線下方",
+        caution: "便宜有時是市場預期 EPS 會下修，等走勢止穩、預估沒有往下調再評估",
+    },
+    "ma-low": {
+        name: "價值盤整",
+        tone: "focus",
+        meaning: "本益比低於區間，股價在均線附近整理，估值提供下檔緩衝",
+        caution: "可留意股價能否帶量站穩均線，轉為上行時估值與走勢同時有利",
+    },
+    "strong-low": {
+        name: "價值轉強",
+        tone: "focus",
+        meaning: "股價已站上均線，本益比仍低於區間，獲利預估成長得比股價快",
+        caution: "這格通常檔數少，先確認不是短線急漲，也要確認預估 EPS 是否可信",
     },
 }
 
-/** 位階的說明，用在說明區塊 */
-const ZONE_NOTES: Record<PriceZone, string> = {
-    strong: "股價高於季線 5% 以上，趨勢向上",
-    ma: "股價在季線上下 5% 以內，盤整",
-    repair: "股價低於季線 5% 以上，趨勢向下",
-}
-
-function cellHint(key: CellKey): string {
-    const cell = CELLS[key]
-    return `${cell.meaning}\n做法：${cell.howto}`
-}
-
-const CELL_ORDER = Object.keys(CELLS)
-const ZONE_ORDER: Record<PriceZone, number> = { strong: 0, ma: 1, repair: 2 }
-const LEVEL_ORDER: Record<ValuationLevel, number> = { low: 0, fair: 1, high: 2 }
+/** 矩陣由左上到右下的順序，落點變化清單也照這個順序排 */
+const CELL_ORDER: CellKey[] = LEVEL_ROWS.flatMap((level) => ZONE_COLS.map((zone) => `${zone}-${level}` as CellKey))
+const ZONE_ORDER: Record<PriceZone, number> = { repair: 0, ma: 1, strong: 2 }
 
 const ALL = "全部"
 const DEFAULT_THEME = "晶圓代工"
-/** 換格比較的間隔：取選定日期往前至少這麼多個日曆日的快照 */
+/** 落點變化的比較間隔：取選定日期往前至少這麼多個日曆日的快照 */
 const COMPARE_DAYS = 7
 
 const index = ref<ValuationIndex | null>(null)
@@ -151,7 +131,16 @@ const year = ref("")
 const theme = ref(ALL)
 const query = ref("")
 
-type SortKey = "code" | "segment" | "close" | "change_pct" | "dist_ma_pct" | "zone" | `pe:${string}` | `val:${string}`
+type SortKey =
+    | "code"
+    | "segment"
+    | "close"
+    | "change_pct"
+    | "dist_ma_pct"
+    | "zone"
+    | `pe:${string}`
+    | `val:${string}`
+    | `pos:${string}`
 const sortKey = ref<SortKey>("dist_ma_pct")
 const sortDesc = ref(true)
 
@@ -170,7 +159,7 @@ const headline = computed(() => {
 
 const years = computed(() => snapshot.value?.years ?? [])
 
-/** 另一個年度，用來標示換格的個股 */
+/** 另一個年度，用來標示兩年落點不同的個股 */
 const otherYear = computed(() => years.value.find((y) => y !== year.value) ?? null)
 
 /** 與題材分類頁相同的順序 */
@@ -227,17 +216,27 @@ const levelCounts = computed(() => {
     return counts
 })
 
-/** 選定年度沒有進九宮格的檔數 (分析師不足、沒有預估、EPS 為負或沒有季線) */
+const zoneCounts = computed(() => {
+    const counts: Record<PriceZone, number> = { strong: 0, ma: 0, repair: 0 }
+    for (const stock of filtered.value) {
+        if (stock.zone && yearOf(stock, year.value)?.valuation) {
+            counts[stock.zone] += 1
+        }
+    }
+    return counts
+})
+
+/** 選定年度沒有放進矩陣的檔數 (分析師不足、沒有預估、EPS 為負或沒有均線) */
 const unplacedCount = computed(() => filtered.value.filter((s) => !cellKey(s, year.value)).length)
 
-/** 兩個年度的估值判定不同，代表成長消化後位置會移動 */
-function moves(stock: ValuationStock): boolean {
+/** 另一個年度的估值判定；跟選定年度相同時回傳 null */
+function otherLevel(stock: ValuationStock): ValuationLevel | null {
     const now = yearOf(stock, year.value)?.valuation
     const other = yearOf(stock, otherYear.value)?.valuation
-    return Boolean(now && other && now !== other)
+    return now && other && now !== other ? other : null
 }
 
-/* ===== 本週換格 ===== */
+/* ===== 近一週落點變化 ===== */
 
 /** 選定日期往前至少 COMPARE_DAYS 天的快照；不足一週時取最早的一份 */
 const compareDate = computed(() => {
@@ -255,12 +254,12 @@ const compareDate = computed(() => {
 interface CellChange {
     stock: ValuationStock
     before: ValuationStock | null
-    from: CellDef | null
-    to: CellDef | null
+    fromKey: CellKey | null
+    toKey: CellKey | null
     reasons: string[]
 }
 
-/** 選定年度在兩個快照間換格的個股，含新列入與移出九宮格 */
+/** 選定年度在兩個快照間落點改變的個股，含新列入與移出矩陣 */
 const changes = computed<CellChange[]>(() => {
     const prev = compareSnapshot.value
     const y = year.value
@@ -278,7 +277,7 @@ const changes = computed<CellChange[]>(() => {
         }
         const reasons: string[] = []
         if (before?.zone && stock.zone && before.zone !== stock.zone) {
-            reasons.push(`位階 ${ZONE_LABELS[before.zone]} → ${ZONE_LABELS[stock.zone]}`)
+            reasons.push(`走勢 ${ZONE_LABELS[before.zone]} → ${ZONE_LABELS[stock.zone]}`)
         }
         const beforeLevel = yearOf(before, y)?.valuation
         const nowLevel = yearOf(stock, y)?.valuation
@@ -288,19 +287,13 @@ const changes = computed<CellChange[]>(() => {
         if (!fromKey) {
             reasons.push("新列入")
         } else if (!toKey) {
-            reasons.push(`移出 (${stock.zone ? skipText(yearOf(stock, y)) : "無季線"})`)
+            reasons.push(`移出 (${stock.zone ? skipText(yearOf(stock, y)) : "無均線"})`)
         }
-        result.push({
-            stock,
-            before,
-            from: fromKey ? CELLS[fromKey] : null,
-            to: toKey ? CELLS[toKey] : null,
-            reasons,
-        })
+        result.push({ stock, before, fromKey, toKey, reasons })
     }
-    // 依換入的格子排序 (九宮格由左上到右下)，移出的排最後
+    // 依現在的落點排序 (矩陣由左上到右下)，移出的排最後
     const order = (key: CellKey | null) => (key ? CELL_ORDER.indexOf(key) : CELL_ORDER.length)
-    return result.sort((a, b) => order(cellKey(a.stock, y)) - order(cellKey(b.stock, y)))
+    return result.sort((a, b) => order(a.toKey) - order(b.toKey))
 })
 
 /* ===== 顯示用 ===== */
@@ -309,7 +302,7 @@ function peText(item: ValuationYear | null): string {
     if (!item || item.pe === null) {
         return "--"
     }
-    return `${item.near_edge ? "≈" : ""}${item.pe.toFixed(2)}x`
+    return `${item.pe.toFixed(1)}x`
 }
 
 function skipText(item: ValuationYear | null): string {
@@ -326,6 +319,11 @@ function skipText(item: ValuationYear | null): string {
         default:
             return "無預估"
     }
+}
+
+function cellTitle(key: CellKey): string {
+    const cell = CELLS[key]
+    return `${cell.meaning}\n留意：${cell.caution}`
 }
 
 function stockTitle(stock: ValuationStock): string {
@@ -347,24 +345,18 @@ function stockTitle(stock: ValuationStock): string {
     return lines.join("\n")
 }
 
-function cellOf(stock: ValuationStock, y: string): CellDef | null {
-    const key = cellKey(stock, y)
-    return key ? CELLS[key] : null
-}
-
-/**
- * 判定旁的小 bar：三等分為低估、合理、高估，標記本益比的位置。
- * 刻度範圍是合理區間往兩側各延伸一個區間寬度，超出時貼在兩端。
- */
-function barPosition(stock: ValuationStock, y: string): number | null {
+/** 本益比在合理區間中的位置：0% 為下緣、100% 為上緣，超出區間時小於 0 或大於 100 */
+function bandPosition(stock: ValuationStock, y: string): number | null {
     const pe = stock.years[y]?.pe
     if (pe === null || pe === undefined || !stock.band) {
         return null
     }
     const [low, high] = stock.band
-    const width = high - low
-    const ratio = (pe - (low - width)) / (width * 3)
-    return Math.min(1, Math.max(0, ratio)) * 100
+    return high > low ? ((pe - low) / (high - low)) * 100 : null
+}
+
+function positionText(value: number | null): string {
+    return value === null ? "--" : `${Math.round(value)}%`
 }
 
 function changeClass(value: number | null): string {
@@ -378,18 +370,21 @@ function pctText(value: number | null): string {
     return value === null ? "--" : `${signed(value)}%`
 }
 
-/* ===== 明細表排序 ===== */
+/* ===== 總表排序 ===== */
 
 function sortValue(stock: ValuationStock, key: SortKey): number | string | null {
     if (key.startsWith("pe:")) {
         return stock.years[key.slice(3)]?.pe ?? null
+    }
+    if (key.startsWith("pos:")) {
+        return bandPosition(stock, key.slice(4))
     }
     if (key.startsWith("val:")) {
         const item = stock.years[key.slice(4)]
         if (!item?.valuation || !stock.zone) {
             return null
         }
-        return LEVEL_ORDER[item.valuation] * 3 + ZONE_ORDER[stock.zone]
+        return CELL_ORDER.indexOf(`${stock.zone}-${item.valuation}`)
     }
     if (key === "zone") {
         return stock.zone ? ZONE_ORDER[stock.zone] : null
@@ -419,8 +414,8 @@ function sortBy(key: SortKey) {
         sortDesc.value = !sortDesc.value
     } else {
         sortKey.value = key
-        // 文字欄位預設升冪，數字欄位預設降冪
-        sortDesc.value = !(key === "code" || key === "segment" || key === "zone" || key.startsWith("val:"))
+        // 文字與落點欄位預設升冪，數字欄位預設降冪
+        sortDesc.value = !(key === "code" || key === "segment" || key.startsWith("val:"))
     }
 }
 
@@ -454,7 +449,7 @@ async function loadCompare(date: string | null) {
     try {
         compareSnapshot.value = await loadValuationSnapshot(date)
     } catch {
-        // 比較用的快照載入失敗時只是不顯示換格，不影響九宮格
+        // 比較用的快照載入失敗時只是不顯示落點變化，不影響矩陣
         compareSnapshot.value = null
     }
 }
@@ -487,9 +482,9 @@ onMounted(async () => {
     <section class="view">
         <header class="page-head">
             <div>
-                <h1>估值九宮格</h1>
+                <h1>估值趨勢矩陣</h1>
                 <p class="subtitle">
-                    前瞻本益比對照環節的合理區間，再看股價離季線多遠，判斷該接、該等還是該避
+                    把前瞻本益比放進所屬環節的合理區間，再對照股價與 60 日均線的距離，看估值和走勢各站在哪一邊
                 </p>
             </div>
             <div class="head-meta">
@@ -516,7 +511,7 @@ onMounted(async () => {
                     role="tab"
                     @click="year = y"
                 >
-                    {{ y }} 年
+                    {{ y }} 年 EPS
                 </button>
             </div>
             <label class="control">
@@ -531,146 +526,165 @@ onMounted(async () => {
             </label>
         </div>
 
-        <section v-if="index && snapshot" class="panel" data-nav="九宮格">
-            <div class="vgrid-wrap">
-                <div class="vgrid">
-                    <div class="corner">
-                        <strong>{{ year }} 年</strong>
-                        <span>前瞻本益比 →</span>
-                        <span>距季線 ↓</span>
-                    </div>
-                    <div v-for="level in LEVELS" :key="level.key" class="col-head" :class="`level-${level.key}`">
-                        {{ level.label }}
-                        <span class="count">{{ levelCounts[level.key] }}</span>
+        <section v-if="index && snapshot" class="panel" data-nav="矩陣">
+            <div class="matrix-wrap">
+                <div class="matrix">
+                    <div class="y-caption">
+                        <span>本益比相對合理區間</span>
                     </div>
 
-                    <template v-for="zone in ZONES" :key="zone.key">
-                        <div class="row-head">
-                            <strong>{{ zone.label }}</strong>
-                            <span v-if="zone.key === 'strong'">距季線 &gt; +{{ index.zone_pct }}%</span>
-                            <span v-else-if="zone.key === 'ma'">距季線 ±{{ index.zone_pct }}% 以內</span>
-                            <span v-else>距季線 &lt; -{{ index.zone_pct }}%</span>
+                    <template v-for="(level, row) in LEVEL_ROWS" :key="level">
+                        <div class="row-label" :style="{ gridRow: row + 1 }">
+                            <strong>{{ LEVEL_LABELS[level] }}</strong>
+                            <span>{{ LEVEL_NOTES[level] }}</span>
+                            <span class="tally">{{ levelCounts[level] }} 檔</span>
                         </div>
-                        <div v-for="level in LEVELS" :key="`${zone.key}-${level.key}`" class="cell">
-                            <div class="cell-axis">{{ zone.label }} × {{ level.label }}</div>
-                            <span
-                                class="cell-tag"
-                                :class="`tone-${CELLS[`${zone.key}-${level.key}`].tone}`"
-                                :title="cellHint(`${zone.key}-${level.key}`)"
-                            >
-                                {{ CELLS[`${zone.key}-${level.key}`].name }}
-                                <span class="cell-action">{{ CELLS[`${zone.key}-${level.key}`].action }}</span>
-                            </span>
-                            <ul v-if="cellStocks(zone.key, level.key).length" class="cell-list">
+                        <div
+                            v-for="(zone, col) in ZONE_COLS"
+                            :key="`${zone}-${level}`"
+                            class="cell"
+                            :class="`tone-${CELLS[`${zone}-${level}`].tone}`"
+                            :style="{ gridRow: row + 1, gridColumn: col + 3 }"
+                        >
+                            <div class="cell-head" :title="cellTitle(`${zone}-${level}`)">
+                                <strong>{{ CELLS[`${zone}-${level}`].name }}</strong>
+                                <span class="cell-axis">{{ LEVEL_LABELS[level] }}・{{ ZONE_LABELS[zone] }}</span>
+                                <span class="cell-count">{{ cellStocks(zone, level).length }}</span>
+                            </div>
+                            <ul v-if="cellStocks(zone, level).length" class="chips">
                                 <li
-                                    v-for="stock in cellStocks(zone.key, level.key)"
+                                    v-for="stock in cellStocks(zone, level)"
                                     :key="stock.code"
-                                    :class="{ moves: moves(stock) }"
+                                    class="chip"
                                     :title="stockTitle(stock)"
                                 >
-                                    <span class="cell-name">{{ stock.name }}</span>
-                                    <span class="cell-pe" :class="{ edge: yearOf(stock, year)?.near_edge }">
-                                        {{ peText(yearOf(stock, year)) }}
+                                    <span class="chip-name">{{ stock.name }}</span>
+                                    <span class="chip-pe">
+                                        {{ peText(yearOf(stock, year)) }}<sup v-if="yearOf(stock, year)?.near_edge" class="chip-edge">邊</sup>
                                     </span>
-                                    <span class="cell-dist" :class="changeClass(stock.dist_ma_pct)">
+                                    <span class="chip-dist" :class="changeClass(stock.dist_ma_pct)">
                                         {{ pctText(stock.dist_ma_pct) }}
+                                    </span>
+                                    <span v-if="otherLevel(stock)" class="chip-other">
+                                        {{ otherYear }} {{ LEVEL_LABELS[otherLevel(stock)!] }}
                                     </span>
                                 </li>
                             </ul>
-                            <p v-else class="cell-empty">—</p>
+                            <p v-else class="cell-empty">無個股</p>
                         </div>
                     </template>
+
+                    <div
+                        v-for="(zone, col) in ZONE_COLS"
+                        :key="`label-${zone}`"
+                        class="col-label"
+                        :style="{ gridColumn: col + 3 }"
+                    >
+                        <strong>{{ ZONE_LABELS[zone] }}</strong>
+                        <span v-if="zone === 'repair'">低於 -{{ index.zone_pct }}%</span>
+                        <span v-else-if="zone === 'ma'">±{{ index.zone_pct }}% 以內</span>
+                        <span v-else>高於 +{{ index.zone_pct }}%</span>
+                        <span class="tally">{{ zoneCounts[zone] }} 檔</span>
+                    </div>
+                    <div class="x-caption">
+                        <span>弱</span>
+                        <span>收盤距 {{ index.ma_days }} 日均線</span>
+                        <span>強</span>
+                    </div>
                 </div>
             </div>
 
             <ul class="legend">
                 <li>
-                    右欄數字為距季線 ({{ index.ma_days }} 日均線)，<span class="val-buy">紅字</span>在季線之上、<span class="val-sell">綠字</span>在季線之下
+                    每檔顯示 {{ year }} 年前瞻本益比與距均線，<span class="val-buy">紅字</span>在均線之上、<span class="val-sell">綠字</span>在均線之下
                 </li>
                 <li>
-                    <span class="edge-sample">≈</span>本益比距合理區間邊界 {{ index.edge_pct }}% 以內，股價一動就可能換格
+                    <sup class="chip-edge">邊</sup> 本益比距合理區間邊界 {{ index.edge_pct }}% 以內，股價小幅變動就可能換到相鄰的格子
                 </li>
                 <li v-if="otherYear">
-                    <span class="moves-sample">虛線框</span>{{ year }} 與 {{ otherYear }} 年的估值判定不同 (成長消化後會移動)
+                    <span class="chip-other">{{ otherYear }} 便宜</span> 改用 {{ otherYear }} 年 EPS 計算時的估值不同
                 </li>
                 <li>
-                    分析師少於 {{ index.min_analysts }} 位、沒有預估或 EPS 為負的個股不列入，目前 {{ unplacedCount }} 檔，可在下方明細表查看
+                    分析師少於 {{ index.min_analysts }} 位、沒有預估或 EPS 為負的個股不放進矩陣，目前 {{ unplacedCount }} 檔，可在總表查看原因
                 </li>
             </ul>
 
             <details class="guide">
-                <summary>九宮格每格的意義</summary>
+                <summary>各格狀態說明</summary>
                 <p class="guide-intro">
-                    欄 (估值) 回答「值不值得買」：前瞻本益比跟所屬環節的合理區間比。
-                    列 (位階) 回答「時機對不對」：收盤跟季線 ({{ index.ma_days }} 日均線) 比。
-                    整體來說越靠左上越有吸引力，越靠右下越該避開。滑鼠移到格子的標籤上也能看到說明。
+                    縱軸看估值：前瞻本益比跟所屬環節的合理區間比，越上面越貴。
+                    橫軸看走勢：收盤跟 {{ index.ma_days }} 日均線比，越右邊越強。
+                    右下角是估值與走勢都有利的位置，左上角則兩者都不利。滑鼠移到格子標題上也能看到說明。
                 </p>
-                <div v-for="zone in ZONES" :key="zone.key" class="guide-zone">
-                    <h3>{{ zone.label }}<span class="guide-zone-note">{{ ZONE_NOTES[zone.key] }}</span></h3>
+                <div class="guide-wrap">
                     <table class="data-table guide-table">
+                        <thead>
+                            <tr>
+                                <th>狀態</th>
+                                <th>估值・走勢</th>
+                                <th>代表什麼</th>
+                                <th>留意</th>
+                            </tr>
+                        </thead>
                         <tbody>
-                            <tr v-for="level in LEVELS" :key="level.key">
+                            <tr v-for="key in [...CELL_ORDER].reverse()" :key="key">
                                 <td class="guide-name">
-                                    <span class="cell-tag" :class="`tone-${CELLS[`${zone.key}-${level.key}`].tone}`">
-                                        {{ CELLS[`${zone.key}-${level.key}`].name }}
-                                        <span class="cell-action">{{ CELLS[`${zone.key}-${level.key}`].action }}</span>
-                                    </span>
-                                    <span class="guide-level">{{ level.label }}</span>
+                                    <span class="tone-mark" :class="`tone-${CELLS[key].tone}`">{{ CELLS[key].name }}</span>
+                                    <span class="guide-tone">{{ TONE_LABELS[CELLS[key].tone] }}</span>
                                 </td>
-                                <td>{{ CELLS[`${zone.key}-${level.key}`].meaning }}</td>
-                                <td>{{ CELLS[`${zone.key}-${level.key}`].howto }}</td>
+                                <td class="guide-axis">
+                                    {{ LEVEL_LABELS[key.split("-")[1] as ValuationLevel] }}・{{ ZONE_LABELS[key.split("-")[0] as PriceZone] }}
+                                </td>
+                                <td>{{ CELLS[key].meaning }}</td>
+                                <td>{{ CELLS[key].caution }}</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
                 <ul class="guide-notes">
-                    <li>合理區間是人工設定的，判定好不好全看區間合不合理</li>
-                    <li>景氣循環股 (例如記憶體) 在獲利高峰時本益比特別低，看起來低估，其實可能是景氣頂點</li>
-                    <li>虛線框通常代表明年 EPS 大幅成長，用明年算就變便宜，要等成長兌現</li>
-                    <li>判定只是篩選工具，不構成投資建議</li>
+                    <li>合理區間是人工設定的，判定是否可靠取決於區間設得合不合理</li>
+                    <li>景氣循環股 (例如記憶體) 在獲利高峰時本益比特別低，看起來便宜，其實可能接近景氣頂點</li>
+                    <li>改用明年 EPS 後變便宜，通常代表預估明年獲利大幅成長，要等成長兌現</li>
+                    <li>矩陣只是篩選工具，不構成投資建議</li>
                 </ul>
             </details>
         </section>
 
-        <section v-if="index && snapshot" class="panel" data-nav="本週換格">
+        <section v-if="index && snapshot" class="panel" data-nav="近一週落點變化">
             <div class="panel-head">
-                <h2>本週換格</h2>
+                <h2>近一週落點變化</h2>
                 <p v-if="compareSnapshot" class="panel-note">
-                    {{ year }} 年判定，{{ formatDate(compareSnapshot.date) }} → {{ formatDate(snapshot.date) }}，
-                    {{ theme === ALL ? "全部題材" : theme }}共 {{ changes.length }} 檔換格
+                    {{ year }} 年 EPS，{{ formatDate(compareSnapshot.date) }} → {{ formatDate(snapshot.date) }}，
+                    {{ theme === ALL ? "全部題材" : theme }}共 {{ changes.length }} 檔改變
                 </p>
             </div>
             <p v-if="!compareDate" class="notice">
-                EPS 共識從 {{ formatDate(firstEstimateDate) }} 開始每天累積，至少要有兩個日期才能比較換格
+                EPS 共識從 {{ formatDate(firstEstimateDate) }} 開始每天累積，至少要有兩個日期才能比較
             </p>
             <p v-else-if="compareSnapshot && !compareSnapshot.years.includes(year)" class="notice">
                 {{ formatDate(compareSnapshot.date) }} 的快照沒有 {{ year }} 年的預估，無法比較
             </p>
-            <p v-else-if="compareSnapshot && !changes.length" class="notice">這段期間沒有個股換格</p>
+            <p v-else-if="compareSnapshot && !changes.length" class="notice">這段期間沒有個股改變落點</p>
             <div v-else-if="changes.length" class="table-wrap">
                 <table class="data-table">
                     <thead>
                         <tr>
                             <th>代號／名稱</th>
-                            <th>原本</th>
-                            <th>現在</th>
+                            <th>落點變化</th>
                             <th>原因</th>
                             <th class="num">{{ year }} PE</th>
-                            <th class="num">距季線</th>
+                            <th class="num">距均線</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr v-for="item in changes" :key="item.stock.code" :title="stockTitle(item.stock)">
                             <td class="nowrap"><span class="code">{{ item.stock.code }}</span>{{ item.stock.name }}</td>
                             <td class="nowrap">
-                                <span v-if="item.from" :class="`level-text-${yearOf(item.before, year)?.valuation}`">
-                                    {{ item.from.name }}｜{{ item.from.action }}
-                                </span>
+                                <span v-if="item.fromKey" class="muted">{{ CELLS[item.fromKey].name }}</span>
                                 <span v-else class="muted">未列入</span>
-                            </td>
-                            <td class="nowrap">
-                                <span v-if="item.to" class="judge-tag" :class="`level-text-${yearOf(item.stock, year)?.valuation}`">
-                                    {{ item.to.name }}｜{{ item.to.action }}
+                                <span class="arrow">→</span>
+                                <span v-if="item.toKey" class="tone-mark" :class="`tone-${CELLS[item.toKey].tone}`">
+                                    {{ CELLS[item.toKey].name }}
                                 </span>
                                 <span v-else class="muted">移出</span>
                             </td>
@@ -688,10 +702,12 @@ onMounted(async () => {
             </div>
         </section>
 
-        <section v-if="index && snapshot" class="panel" data-nav="個股明細表">
+        <section v-if="index && snapshot" class="panel" data-nav="個股估值總表">
             <div class="panel-head">
-                <h2>個股明細表</h2>
-                <p class="panel-note">點欄位標題可排序。本益比 = 收盤 ÷ 分析師共識 EPS，滑鼠移到個股上可看預估 EPS 與分析師人數</p>
+                <h2>個股估值總表</h2>
+                <p class="panel-note">
+                    點欄位標題可排序。本益比 = 收盤 ÷ 分析師共識 EPS；區間位置 0% 為合理區間下緣、100% 為上緣
+                </p>
             </div>
             <div class="table-wrap">
                 <table class="data-table detail-table">
@@ -701,17 +717,19 @@ onMounted(async () => {
                             <th class="sortable" @click="sortBy('segment')">環節 {{ sortMark("segment") }}</th>
                             <th class="num sortable" @click="sortBy('close')">收盤 {{ sortMark("close") }}</th>
                             <th class="num sortable" @click="sortBy('change_pct')">漲跌 {{ sortMark("change_pct") }}</th>
-                            <th class="num sortable" @click="sortBy('dist_ma_pct')">距季線 {{ sortMark("dist_ma_pct") }}</th>
-                            <th class="sortable" @click="sortBy('zone')">位階 {{ sortMark("zone") }}</th>
+                            <th class="num sortable" @click="sortBy('dist_ma_pct')">距均線 {{ sortMark("dist_ma_pct") }}</th>
+                            <th class="num">合理區間</th>
                             <template v-for="y in years" :key="y">
                                 <th class="num sortable" :class="{ 'is-current': y === year }" @click="sortBy(`pe:${y}`)">
                                     {{ y }} PE {{ sortMark(`pe:${y}`) }}
                                 </th>
+                                <th class="num sortable" :class="{ 'is-current': y === year }" @click="sortBy(`pos:${y}`)">
+                                    區間位置 {{ sortMark(`pos:${y}`) }}
+                                </th>
                                 <th class="sortable" :class="{ 'is-current': y === year }" @click="sortBy(`val:${y}`)">
-                                    {{ y }} 判定 {{ sortMark(`val:${y}`) }}
+                                    {{ y }} 狀態 {{ sortMark(`val:${y}`) }}
                                 </th>
                             </template>
-                            <th class="num">合理區間</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -721,36 +739,31 @@ onMounted(async () => {
                             <td class="num">{{ stock.close.toLocaleString() }}</td>
                             <td class="num" :class="changeClass(stock.change_pct)">{{ pctText(stock.change_pct) }}</td>
                             <td class="num" :class="changeClass(stock.dist_ma_pct)">{{ pctText(stock.dist_ma_pct) }}</td>
-                            <td>
-                                <span v-if="stock.zone" class="zone-tag" :class="`zone-${stock.zone}`">{{ ZONE_LABELS[stock.zone] }}</span>
-                                <span v-else class="muted">--</span>
-                            </td>
-                            <template v-for="y in years" :key="y">
-                                <td class="num" :class="{ muted: !stock.years[y]?.valuation }">
-                                    <span :class="{ edge: stock.years[y]?.near_edge }">{{ peText(stock.years[y] ?? null) }}</span>
-                                </td>
-                                <td class="judge-cell">
-                                    <template v-if="cellOf(stock, y)">
-                                        <span
-                                            class="judge-tag"
-                                            :class="`level-text-${stock.years[y].valuation}`"
-                                            :title="LEVEL_LABELS[stock.years[y].valuation as ValuationLevel]"
-                                        >
-                                            {{ cellOf(stock, y)?.name }}｜{{ cellOf(stock, y)?.action }}
-                                        </span>
-                                        <span v-if="barPosition(stock, y) !== null" class="band-bar" aria-hidden="true">
-                                            <span class="band-marker" :style="{ left: `${barPosition(stock, y)}%` }" />
-                                        </span>
-                                    </template>
-                                    <span v-else class="muted">{{ stock.zone ? skipText(stock.years[y] ?? null) : "無季線" }}</span>
-                                </td>
-                            </template>
                             <td class="num nowrap">
                                 <template v-if="stock.band">
                                     {{ stock.band[0] }}～{{ stock.band[1] }}x<span v-if="stock.band_source === 'stock'" class="muted">*</span>
                                 </template>
                                 <span v-else class="muted">--</span>
                             </td>
+                            <template v-for="y in years" :key="y">
+                                <td class="num" :class="{ muted: !stock.years[y]?.valuation }">
+                                    {{ peText(stock.years[y] ?? null) }}
+                                </td>
+                                <td class="num" :class="stock.years[y]?.valuation ? `level-text-${stock.years[y].valuation}` : 'muted'">
+                                    {{ positionText(bandPosition(stock, y)) }}
+                                </td>
+                                <td class="nowrap">
+                                    <span
+                                        v-if="cellKey(stock, y)"
+                                        class="tone-mark"
+                                        :class="`tone-${CELLS[cellKey(stock, y)!].tone}`"
+                                        :title="cellTitle(cellKey(stock, y)!)"
+                                    >
+                                        {{ CELLS[cellKey(stock, y)!].name }}
+                                    </span>
+                                    <span v-else class="muted">{{ stock.zone ? skipText(stock.years[y] ?? null) : "無均線" }}</span>
+                                </td>
+                            </template>
                         </tr>
                     </tbody>
                 </table>
@@ -784,186 +797,230 @@ onMounted(async () => {
     border-color: var(--text-muted);
 }
 
-/* ===== 九宮格 ===== */
+/* ===== 狀態色調：以左側色條與淡底色區分，文字一律標示狀態名稱 ===== */
 
-/* 依九宮格本身的寬度切換版面，側欄展開或視窗縮小時都適用 */
-.vgrid-wrap {
+.tone-focus {
+    --tone: var(--series-foreign);
+}
+
+.tone-check {
+    --tone: var(--series-trust);
+}
+
+.tone-neutral {
+    --tone: var(--text-muted);
+}
+
+.tone-weak {
+    --tone: var(--text-primary);
+}
+
+/* ===== 矩陣 ===== */
+
+/* 依矩陣本身的寬度切換版面，側欄展開或視窗縮小時都適用 */
+.matrix-wrap {
     container-type: inline-size;
 }
 
-.vgrid {
+.matrix {
     display: grid;
-    grid-template-columns: 104px repeat(3, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: 22px 88px repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(3, auto) auto auto;
+    gap: 0;
+    border-left: 2px solid var(--text-secondary);
 }
 
-.corner,
-.col-head,
-.row-head {
+.y-caption {
+    grid-row: 1 / 4;
+    grid-column: 1;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    border-radius: 6px;
-    text-align: center;
-}
-
-.corner {
-    padding: 8px;
-    background: var(--text-primary);
-    color: var(--surface-1);
-    font-size: 11px;
-    line-height: 1.4;
-}
-
-.corner strong {
-    font-size: 15px;
-}
-
-.col-head {
-    flex-direction: row;
-    gap: 8px;
-    padding: 10px 8px;
-    color: #fff;
-    font-size: 15px;
-    font-weight: 600;
-}
-
-.level-low {
-    background: var(--sell);
-}
-
-.level-fair {
-    background: var(--text-primary);
-    color: var(--surface-1);
-}
-
-.level-high {
-    background: var(--buy);
-}
-
-.count {
-    min-width: 22px;
-    padding: 0 6px;
-    border-radius: 999px;
-    background: rgb(255 255 255 / 25%);
+    color: var(--text-muted);
     font-size: 12px;
-    font-weight: 400;
+    letter-spacing: 2px;
 }
 
-.row-head {
+.y-caption span {
+    /* 中文直書由上而下閱讀，英數字保持橫排 */
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+}
+
+.row-label {
+    grid-column: 2;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     gap: 2px;
-    padding: 8px;
-    border: 1px solid var(--border);
-    background: var(--surface-0);
+    padding: 8px 10px 8px 0;
+    text-align: right;
 }
 
-.row-head strong {
-    font-size: 15px;
+.row-label strong {
+    font-size: 16px;
 }
 
-.row-head span {
+.row-label span {
     color: var(--text-muted);
     font-size: 11px;
+}
+
+.tally {
+    color: var(--text-secondary) !important;
+    font-variant-numeric: tabular-nums;
 }
 
 .cell {
     min-width: 0;
-    padding: 10px;
+    margin: 0 0 -1px -1px;
+    padding: 10px 12px 12px;
     border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--surface-1);
+    border-left: 3px solid var(--tone);
+    background: color-mix(in srgb, var(--tone) 6%, var(--surface-1));
+}
+
+.cell-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 8px;
+    cursor: help;
+}
+
+.cell-head strong {
+    color: var(--tone);
+    font-size: 14px;
 }
 
 .cell-axis {
     display: none;
-    margin-bottom: 6px;
     color: var(--text-muted);
     font-size: 12px;
 }
 
-/* 提示以文字標示，顏色只是輔助 */
-.cell-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 1px 8px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    color: var(--text-secondary);
+.cell-count {
+    margin-left: auto;
+    color: var(--text-muted);
     font-size: 12px;
-    font-weight: 600;
+    font-variant-numeric: tabular-nums;
 }
 
-.cell-action {
-    padding-left: 6px;
-    border-left: 1px solid currentcolor;
-}
-
-.tone-good {
-    border-color: #d9a520;
-    color: #a67a00;
-}
-
-.tone-warn {
-    border-color: var(--buy);
-    color: var(--buy);
-}
-
-.tone-avoid {
-    border-color: var(--buy);
-    background: var(--buy);
-    color: #fff;
-}
-
-.cell-list {
-    margin: 8px 0 0;
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
     padding: 0;
     list-style: none;
 }
 
-.cell-list li {
-    display: grid;
-    grid-template-columns: minmax(4em, 1fr) auto 64px;
-    gap: 8px;
-    padding: 2px 6px;
-    border: 1px dashed transparent;
+.chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    max-width: 100%;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
     border-radius: 4px;
-    font-size: 13px;
+    background: var(--surface-1);
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
 }
 
-.cell-list li.moves {
-    border-color: var(--text-muted);
+/* 格子窄時寧可讓標籤換行，也不截斷股名 */
+.chip {
+    flex-wrap: wrap;
 }
 
-.cell-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
+.chip-name {
+    flex-shrink: 0;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
     white-space: nowrap;
 }
 
-.cell-pe,
-.cell-dist {
-    text-align: right;
+.chip-pe {
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.chip-dist {
+    white-space: nowrap;
+}
+
+.chip-edge {
+    margin-left: 1px;
+    color: var(--series-trust);
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.chip-other {
+    padding: 0 4px;
+    border-radius: 3px;
+    background: var(--neutral);
+    color: var(--text-secondary);
+    font-size: 11px;
+    white-space: nowrap;
 }
 
 .cell-empty {
-    margin: 16px 0;
+    margin: 8px 0 0;
     color: var(--text-muted);
-    text-align: center;
+    font-size: 12px;
 }
 
-.edge {
-    text-decoration: underline dotted;
-    text-underline-offset: 3px;
+.col-label {
+    grid-row: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    padding: 8px 4px 2px;
+    border-top: 2px solid var(--text-secondary);
 }
 
-.cell-tag[title] {
-    cursor: help;
+.col-label strong {
+    font-size: 15px;
 }
 
-/* ===== 每格意義說明 ===== */
+.col-label span {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.x-caption {
+    grid-row: 5;
+    grid-column: 3 / 6;
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 4px 0;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.x-caption span:first-child::before {
+    content: "← ";
+}
+
+.x-caption span:last-child::after {
+    content: " →";
+}
+
+/* ===== 圖例與說明 ===== */
+
+.legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    margin: 14px 0 0;
+    padding: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    list-style: none;
+}
 
 .guide {
     margin-top: 14px;
@@ -983,51 +1040,47 @@ onMounted(async () => {
 }
 
 .guide-intro {
-    margin: 10px 0 4px;
+    margin: 10px 0 8px;
     color: var(--text-secondary);
     font-size: 13px;
     line-height: 1.7;
 }
 
-.guide-zone {
-    margin-top: 12px;
+/* 只橫向捲動，不像共用的 table-wrap 限制高度 */
+.guide-wrap {
     overflow-x: auto;
 }
 
-.guide-zone h3 {
-    margin: 0 0 4px;
-}
-
-.guide-zone-note {
-    margin-left: 10px;
-    color: var(--text-muted);
-    font-size: 12px;
-    font-weight: 400;
-}
-
-/* 固定欄寬，三個位階的表格欄位才會對齊 */
+/* 固定欄寬；共用表格預設不換行，說明文字要換行才不會擠出版面 */
 .guide-table {
     width: 100%;
-    min-width: 560px;
+    min-width: 640px;
     table-layout: fixed;
     font-size: 13px;
 }
 
-/* 共用表格預設不換行，說明文字要換行才不會擠出版面 */
+.guide-table th:nth-child(1) {
+    width: 150px;
+}
+
+.guide-table th:nth-child(2) {
+    width: 120px;
+}
+
 .guide-table td {
     vertical-align: top;
     white-space: normal;
 }
 
-.guide-table td.guide-name {
-    width: 190px;
+.guide-table td.guide-name,
+.guide-table td.guide-axis {
     white-space: nowrap;
 }
 
-.guide-level {
-    margin-left: 8px;
+.guide-tone {
+    display: block;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: 11px;
 }
 
 .guide-notes {
@@ -1038,30 +1091,21 @@ onMounted(async () => {
     line-height: 1.8;
 }
 
-.legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 20px;
-    margin: 12px 0 0;
-    padding: 0;
-    color: var(--text-secondary);
-    font-size: 12px;
-    list-style: none;
-}
-
-.edge-sample {
-    margin-right: 4px;
+/* 狀態名稱：前面一個色條，顏色只是輔助 */
+.tone-mark {
+    padding-left: 7px;
+    border-left: 3px solid var(--tone);
+    color: var(--text-primary);
+    font-size: 13px;
     font-weight: 600;
 }
 
-.moves-sample {
-    margin-right: 4px;
-    padding: 0 4px;
-    border: 1px dashed var(--text-muted);
-    border-radius: 3px;
-}
+/* ===== 表格 ===== */
 
-/* ===== 明細表 ===== */
+.arrow {
+    margin: 0 6px;
+    color: var(--text-muted);
+}
 
 .detail-table th.sortable {
     cursor: pointer;
@@ -1092,34 +1136,6 @@ onMounted(async () => {
     color: var(--text-secondary);
 }
 
-.zone-tag {
-    padding: 1px 8px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    font-size: 12px;
-    white-space: nowrap;
-}
-
-.zone-strong {
-    border-color: var(--buy);
-    color: var(--buy);
-}
-
-.zone-repair {
-    border-color: var(--sell);
-    color: var(--sell);
-}
-
-.judge-cell {
-    white-space: nowrap;
-}
-
-.judge-tag {
-    margin-right: 8px;
-    font-size: 13px;
-    font-weight: 600;
-}
-
 .level-text-low {
     color: var(--sell);
 }
@@ -1132,32 +1148,6 @@ onMounted(async () => {
     color: var(--buy);
 }
 
-/* 三等分：低估、合理、高估 */
-.band-bar {
-    position: relative;
-    display: inline-block;
-    width: 60px;
-    height: 6px;
-    border-radius: 3px;
-    background: linear-gradient(
-        to right,
-        color-mix(in srgb, var(--sell) 35%, transparent) 0 33.3%,
-        var(--neutral) 33.3% 66.6%,
-        color-mix(in srgb, var(--buy) 35%, transparent) 66.6% 100%
-    );
-    vertical-align: middle;
-}
-
-.band-marker {
-    position: absolute;
-    top: -3px;
-    width: 3px;
-    height: 12px;
-    margin-left: -1.5px;
-    border-radius: 1px;
-    background: var(--text-primary);
-}
-
 .muted {
     color: var(--text-muted);
 }
@@ -1167,22 +1157,32 @@ onMounted(async () => {
 }
 
 /*
- * 每格少於約 200px 時股名會被擠掉，改為卡片排列，每格自己標示軸。
- * 卡片依九宮格由左上到右下的順序排列。
+ * 每格太窄時股名會被擠掉，改為卡片排列，每格自己標示估值與走勢。
+ * 卡片依矩陣由左上到右下的順序排列。
  */
-@container (max-width: 840px) {
-    .vgrid {
+@container (max-width: 720px) {
+    .matrix {
         grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+        grid-template-rows: none;
+        gap: 8px;
+        border-left: 0;
     }
 
-    .corner,
-    .col-head,
-    .row-head {
+    .y-caption,
+    .row-label,
+    .col-label,
+    .x-caption {
         display: none;
     }
 
+    .cell {
+        grid-row: auto !important;
+        grid-column: auto !important;
+        margin: 0;
+    }
+
     .cell-axis {
-        display: block;
+        display: inline;
     }
 }
 </style>

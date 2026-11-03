@@ -515,7 +515,7 @@ def api_themes():
 
 @router.get("/valuation")
 def api_valuation():
-    """估值九宮格的索引：可選日期、題材順序與判定參數。"""
+    """估值趨勢矩陣的索引：可選日期、題材順序與判定參數。"""
     conn = connect()
     try:
         return valuation_grid.build_index(conn)
@@ -525,7 +525,7 @@ def api_valuation():
 
 @router.get("/valuation/{date}")
 def api_valuation_snapshot(date: str):
-    """單一日期的九宮格：前瞻本益比、合理區間判定與季線位階。"""
+    """單一日期的矩陣：前瞻本益比、合理區間判定與均線走勢。"""
     conn = connect()
     try:
         payload = valuation_grid.build_snapshot(conn, date)

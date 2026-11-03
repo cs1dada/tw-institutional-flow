@@ -302,7 +302,7 @@ export async function loadEtfTrend(): Promise<EtfTrendData> {
     return data
 }
 
-/** 估值九宮格的索引：可選日期、題材順序與判定參數 */
+/** 估值趨勢矩陣的索引：可選日期、題材順序與判定參數 */
 export async function loadValuation(): Promise<ValuationIndex> {
     if (cache.valuation) {
         return cache.valuation
@@ -315,7 +315,7 @@ export async function loadValuation(): Promise<ValuationIndex> {
     return data
 }
 
-/** 估值九宮格的單一日期，切換日期或比較換格時才下載 */
+/** 估值趨勢矩陣的單一日期，切換日期或比較換格時才下載 */
 export async function loadValuationSnapshot(date: string): Promise<ValuationSnapshot> {
     const cached = cache.valuationSnapshots.get(date)
     if (cached) {
