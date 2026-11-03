@@ -30,6 +30,10 @@ interface CellDef {
     action: string
     /** good：值得留意；warn：要驗證；avoid：避開；plain：觀望 */
     tone: "good" | "warn" | "avoid" | "plain"
+    /** 這格代表的狀態 */
+    meaning: string
+    /** 建議的做法 */
+    howto: string
 }
 
 type CellKey = `${PriceZone}-${ValuationLevel}`
@@ -52,15 +56,81 @@ const ZONE_LABELS: Record<PriceZone, string> = { strong: "強勢區", ma: "季�
 
 /** 依九宮格由左上到右下的順序，換格清單也照這個順序排 */
 const CELLS: Record<CellKey, CellDef> = {
-    "strong-low": { name: "拉回候選", action: "接", tone: "good" },
-    "strong-fair": { name: "趨勢持有", action: "拿", tone: "good" },
-    "strong-high": { name: "高預期", action: "跟", tone: "warn" },
-    "ma-low": { name: "突破候選", action: "攻", tone: "good" },
-    "ma-fair": { name: "等待表態", action: "看", tone: "plain" },
-    "ma-high": { name: "突破確認", action: "驗", tone: "warn" },
-    "repair-low": { name: "修復候選", action: "等", tone: "good" },
-    "repair-fair": { name: "等待止跌", action: "守", tone: "plain" },
-    "repair-high": { name: "低優先區", action: "避", tone: "avoid" },
+    "strong-low": {
+        name: "拉回候選",
+        action: "接",
+        tone: "good",
+        meaning: "股價已經在漲，但本益比還在區間下緣以下，代表獲利成長比股價漲得快",
+        howto: "不追高，等拉回季線附近再承接。這格通常很少股票",
+    },
+    "strong-fair": {
+        name: "趨勢持有",
+        action: "拿",
+        tone: "good",
+        meaning: "趨勢向上、估值在合理範圍，漲勢有基本面支撐",
+        howto: "已經持有的續抱，讓獲利跑",
+    },
+    "strong-high": {
+        name: "高預期",
+        action: "跟",
+        tone: "warn",
+        meaning: "股價強，但估值已經超過區間上緣，市場給的預期很高",
+        howto: "可以順勢跟，但要設停損，財報或展望不如預期時跌幅會很大",
+    },
+    "ma-low": {
+        name: "突破候選",
+        action: "攻",
+        tone: "good",
+        meaning: "估值便宜，股價在季線附近整理，下檔有估值撐著",
+        howto: "風險報酬比最好的一格，可以主動布局，站穩季線後轉強就是進場點",
+    },
+    "ma-fair": {
+        name: "等待表態",
+        action: "看",
+        tone: "plain",
+        meaning: "估值和走勢都沒有明顯優勢",
+        howto: "觀察，等它往強勢區或修復區表態",
+    },
+    "ma-high": {
+        name: "突破確認",
+        action: "驗",
+        tone: "warn",
+        meaning: "估值偏貴，股價卻還在季線附近",
+        howto: "先驗證：要真的突破、市場願意接受高估值，才考慮進場",
+    },
+    "repair-low": {
+        name: "修復候選",
+        action: "等",
+        tone: "good",
+        meaning: "估值已經便宜，但股價還在跌",
+        howto: "便宜可能更便宜，等止跌或站回季線再進場，不要接刀子",
+    },
+    "repair-fair": {
+        name: "等待止跌",
+        action: "守",
+        tone: "plain",
+        meaning: "估值不貴，但趨勢還沒止穩",
+        howto: "先守住，空手的不急著進，持有的注意停損",
+    },
+    "repair-high": {
+        name: "低優先區",
+        action: "避",
+        tone: "avoid",
+        meaning: "股價在跌、估值又貴，最差的組合",
+        howto: "避開，等它掉回合理區間再評估",
+    },
+}
+
+/** 位階的說明，用在說明區塊 */
+const ZONE_NOTES: Record<PriceZone, string> = {
+    strong: "股價高於季線 5% 以上，趨勢向上",
+    ma: "股價在季線上下 5% 以內，盤整",
+    repair: "股價低於季線 5% 以上，趨勢向下",
+}
+
+function cellHint(key: CellKey): string {
+    const cell = CELLS[key]
+    return `${cell.meaning}\n做法：${cell.howto}`
 }
 
 const CELL_ORDER = Object.keys(CELLS)
@@ -483,7 +553,11 @@ onMounted(async () => {
                         </div>
                         <div v-for="level in LEVELS" :key="`${zone.key}-${level.key}`" class="cell">
                             <div class="cell-axis">{{ zone.label }} × {{ level.label }}</div>
-                            <span class="cell-tag" :class="`tone-${CELLS[`${zone.key}-${level.key}`].tone}`">
+                            <span
+                                class="cell-tag"
+                                :class="`tone-${CELLS[`${zone.key}-${level.key}`].tone}`"
+                                :title="cellHint(`${zone.key}-${level.key}`)"
+                            >
                                 {{ CELLS[`${zone.key}-${level.key}`].name }}
                                 <span class="cell-action">{{ CELLS[`${zone.key}-${level.key}`].action }}</span>
                             </span>
@@ -523,6 +597,39 @@ onMounted(async () => {
                     分析師少於 {{ index.min_analysts }} 位、沒有預估或 EPS 為負的個股不列入，目前 {{ unplacedCount }} 檔，可在下方明細表查看
                 </li>
             </ul>
+
+            <details class="guide">
+                <summary>九宮格每格的意義</summary>
+                <p class="guide-intro">
+                    欄 (估值) 回答「值不值得買」：前瞻本益比跟所屬環節的合理區間比。
+                    列 (位階) 回答「時機對不對」：收盤跟季線 ({{ index.ma_days }} 日均線) 比。
+                    整體來說越靠左上越有吸引力，越靠右下越該避開。滑鼠移到格子的標籤上也能看到說明。
+                </p>
+                <div v-for="zone in ZONES" :key="zone.key" class="guide-zone">
+                    <h3>{{ zone.label }}<span class="guide-zone-note">{{ ZONE_NOTES[zone.key] }}</span></h3>
+                    <table class="data-table guide-table">
+                        <tbody>
+                            <tr v-for="level in LEVELS" :key="level.key">
+                                <td class="guide-name">
+                                    <span class="cell-tag" :class="`tone-${CELLS[`${zone.key}-${level.key}`].tone}`">
+                                        {{ CELLS[`${zone.key}-${level.key}`].name }}
+                                        <span class="cell-action">{{ CELLS[`${zone.key}-${level.key}`].action }}</span>
+                                    </span>
+                                    <span class="guide-level">{{ level.label }}</span>
+                                </td>
+                                <td>{{ CELLS[`${zone.key}-${level.key}`].meaning }}</td>
+                                <td>{{ CELLS[`${zone.key}-${level.key}`].howto }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <ul class="guide-notes">
+                    <li>合理區間是人工設定的，判定好不好全看區間合不合理</li>
+                    <li>景氣循環股 (例如記憶體) 在獲利高峰時本益比特別低，看起來低估，其實可能是景氣頂點</li>
+                    <li>虛線框通常代表明年 EPS 大幅成長，用明年算就變便宜，要等成長兌現</li>
+                    <li>判定只是篩選工具，不構成投資建議</li>
+                </ul>
+            </details>
         </section>
 
         <section v-if="index && snapshot" class="panel" data-nav="本週換格">
@@ -850,6 +957,85 @@ onMounted(async () => {
 .edge {
     text-decoration: underline dotted;
     text-underline-offset: 3px;
+}
+
+.cell-tag[title] {
+    cursor: help;
+}
+
+/* ===== 每格意義說明 ===== */
+
+.guide {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.guide summary {
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.guide summary:hover {
+    color: var(--text-primary);
+}
+
+.guide-intro {
+    margin: 10px 0 4px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+.guide-zone {
+    margin-top: 12px;
+    overflow-x: auto;
+}
+
+.guide-zone h3 {
+    margin: 0 0 4px;
+}
+
+.guide-zone-note {
+    margin-left: 10px;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+/* 固定欄寬，三個位階的表格欄位才會對齊 */
+.guide-table {
+    width: 100%;
+    min-width: 560px;
+    table-layout: fixed;
+    font-size: 13px;
+}
+
+/* 共用表格預設不換行，說明文字要換行才不會擠出版面 */
+.guide-table td {
+    vertical-align: top;
+    white-space: normal;
+}
+
+.guide-table td.guide-name {
+    width: 190px;
+    white-space: nowrap;
+}
+
+.guide-level {
+    margin-left: 8px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.guide-notes {
+    margin: 12px 0 0;
+    padding-left: 18px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.8;
 }
 
 .legend {

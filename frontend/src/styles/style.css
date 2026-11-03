@@ -558,6 +558,45 @@ h2 {
     border-left: 2px solid var(--border);
 }
 
+/* 目前頁籤右側的箭頭：再點一次頁籤可收起或展開區塊捷徑 */
+.nav-item.has-sections {
+    position: relative;
+    padding-right: 28px;
+}
+
+.nav-toggle {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    width: 7px;
+    height: 7px;
+    margin-top: -6px;
+    border-right: 1.5px solid var(--text-muted);
+    border-bottom: 1.5px solid var(--text-muted);
+    transform: rotate(45deg);
+    transition: transform 0.15s ease, margin-top 0.15s ease;
+}
+
+.nav-toggle.is-collapsed {
+    margin-top: -3px;
+    transform: rotate(-45deg);
+}
+
+.nav-item:hover .nav-toggle {
+    border-color: var(--text-primary);
+}
+
+/* 窄螢幕不顯示區塊捷徑，箭頭也一併隱藏 */
+@media (max-width: 900px) {
+    .nav-item.has-sections {
+        padding-right: 10px;
+    }
+
+    .nav-toggle {
+        display: none;
+    }
+}
+
 .sub-item {
     display: block;
     width: 100%;

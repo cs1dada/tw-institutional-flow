@@ -8,6 +8,8 @@
  * 目前所在的頁籤下方會展開該頁各區塊的捷徑。區塊由各頁面以 data-nav 屬性標記，
  * 這裡自動從畫面上找出來，各頁面不需要另外登記。有些區塊要等資料載入或使用者
  * 操作後才出現，因此監看內容區的 DOM 變化隨時更新。
+ *
+ * 再點一次目前所在的頁籤可以收起捷徑，再點一次又展開；切換到其他頁籤時預設展開。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
@@ -67,6 +69,17 @@ const CURRENT_OFFSET = 120
 const route = useRoute()
 const sections = ref<Section[]>([])
 const current = ref<string | null>(null)
+/** 目前頁籤的捷徑是否收起 */
+const collapsed = ref(false)
+
+/** 點目前所在的頁籤切換展開與收起，點其他頁籤則照常切換頁面 */
+function onItemClick(isActive: boolean, navigate: () => void) {
+    if (isActive) {
+        collapsed.value = !collapsed.value
+        return
+    }
+    navigate()
+}
 
 let observer: MutationObserver | null = null
 let pending = 0
@@ -148,6 +161,7 @@ watch(
     () => route.path,
     async () => {
         sections.value = []
+        collapsed.value = false
         await nextTick()
         scheduleScan()
     },
@@ -162,13 +176,20 @@ watch(
                 <button
                     type="button"
                     class="nav-item"
-                    :class="{ 'is-active': isActive }"
-                    @click="navigate"
+                    :class="{ 'is-active': isActive, 'has-sections': isActive && sections.length }"
+                    :aria-expanded="isActive && sections.length ? !collapsed : undefined"
+                    @click="onItemClick(isActive, navigate)"
                 >
                     <span class="nav-label">{{ item.label }}</span>
                     <span class="nav-desc">{{ item.desc }}</span>
+                    <span
+                        v-if="isActive && sections.length"
+                        class="nav-toggle"
+                        :class="{ 'is-collapsed': collapsed }"
+                        aria-hidden="true"
+                    />
                 </button>
-                <div v-if="isActive && sections.length" class="sub-nav">
+                <div v-if="isActive && sections.length && !collapsed" class="sub-nav">
                     <button
                         v-for="section in sections"
                         :key="section.id"
