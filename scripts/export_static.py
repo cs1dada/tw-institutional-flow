@@ -38,6 +38,19 @@ def write_json(path, payload):
     return path.stat().st_size
 
 
+def merged_market(conn):
+    """market.json 以既有檔案為底合併，保留資料庫沒有的籌碼與台指 VIX 歷史，見 dataset.merge_market。"""
+    path = DATA_DIR / "market.json"
+    old = None
+    if path.exists():
+        try:
+            old = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            # 舊檔損毀就當作沒有，直接以資料庫內容重建
+            old = None
+    return dataset.merge_market(old, dataset.build_market(conn))
+
+
 def check_not_shrinking(target_dates, days, force):
     """避免以較少的資料覆蓋既有輸出。
 
@@ -190,7 +203,7 @@ def main():
         size = write_json(DATA_DIR / "index.json", dataset.build_index(conn))
         print(f"index.json  {size / 1024:.1f} KB")
 
-        size = write_json(DATA_DIR / "market.json", dataset.build_market(conn))
+        size = write_json(DATA_DIR / "market.json", merged_market(conn))
         print(f"market.json  {size / 1024:.1f} KB")
 
         export_etf_cost(conn)

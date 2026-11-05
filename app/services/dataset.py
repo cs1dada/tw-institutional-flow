@@ -544,6 +544,62 @@ def build_market(conn, days=config.MARKET_CHIP_DAYS):
     }
 
 
+def _merge_rows(old_fields, old_rows, new_fields, new_rows, limit):
+    """以日期合併兩組 [日期, 欄位...] 列，同一天以新資料為準，新資料缺值的欄位沿用舊值。
+
+    舊資料的欄位順序可能不同，一律以欄位名稱對應；新格式沒有的舊欄位直接捨棄。
+    """
+    merged = {}
+    if old_fields and old_fields[0] == "date":
+        positions = [old_fields.index(name) if name in old_fields else None for name in new_fields]
+        for row in old_rows or []:
+            merged[row[0]] = [
+                row[index] if index is not None and index < len(row) else None
+                for index in positions
+            ]
+    for row in new_rows:
+        previous = merged.get(row[0])
+        merged[row[0]] = (
+            list(row) if previous is None
+            else [value if value is not None else previous[i] for i, value in enumerate(row)]
+        )
+    return [merged[date] for date in sorted(merged)][-limit:]
+
+
+def merge_market(old, new, days=config.MARKET_CHIP_DAYS):
+    """把既有的 market.json 與資料庫重新產生的內容合併，保留資料庫沒有的日期。
+
+    線上排程的資料庫與本機各自獨立，籌碼歷史只在本機回補過；
+    台指 VIX 期交所也只留約三個月。直接覆蓋會讓這些歷史在下次匯出時消失，
+    因此匯出時以舊檔為底，資料庫有的日期再蓋上去。
+    """
+    if not old:
+        return new
+    result = {"chip": {"fields": new["chip"]["fields"]}}
+    old_chip = old.get("chip") or {}
+    for market in (config.MARKET_TWSE, config.MARKET_TPEX):
+        result["chip"][market] = _merge_rows(
+            old_chip.get("fields"), old_chip.get(market),
+            new["chip"]["fields"], new["chip"][market], days,
+        )
+
+    old_index = old.get("tpex_index") or {}
+    result["tpex_index"] = {
+        "fields": new["tpex_index"]["fields"],
+        "items": _merge_rows(
+            old_index.get("fields"), old_index.get("items"),
+            new["tpex_index"]["fields"], new["tpex_index"]["items"], TPEX_INDEX_DAYS,
+        ),
+    }
+
+    old_macro = old.get("macro") or {}
+    result["macro"] = {
+        series: _merge_rows(["date", "value"], old_macro.get(series), ["date", "value"], points, MACRO_POINTS)
+        for series, points in new["macro"].items()
+    }
+    return result
+
+
 def build_meta(conn, limit=120):
     """日期清單與基本資訊。limit 為日期清單的天數上限，靜態匯出時依匯出天數放寬。"""
     return {
