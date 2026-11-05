@@ -10,6 +10,8 @@ import logging
 import urllib.parse
 from datetime import date
 
+import requests
+
 from app.http_client import get_session
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,10 @@ logger = logging.getLogger(__name__)
 AUTH_URL = "https://www.ctbcinvestments.com.tw/API/home/AuthToken?token=www.ctbcinvestments.com"
 BUYBACK_URL = "https://www.ctbcinvestments.com.tw/API/etf/Buyback"
 TIMEOUT = 30
+
+# 中信的 WAF 會比對 TLS 指紋與 User-Agent，Python 送出瀏覽器 UA 會被判定偽裝而回 403，
+# 改用 requests 預設的 UA 如實表明身分即可通過 (2026-11 起實測)
+HEADERS = {"User-Agent": requests.utils.default_user_agent()}
 
 # 查詢日是清單適用日，要取得 D 日的持股須查次一營業日
 QUERY_NEXT_DAY = True
@@ -37,7 +43,7 @@ def _get_token(refresh=False):
     if _token and not refresh:
         return _token
     session = get_session()
-    resp = session.post(AUTH_URL, json={}, timeout=TIMEOUT)
+    resp = session.post(AUTH_URL, json={}, headers=HEADERS, timeout=TIMEOUT)
     resp.raise_for_status()
     _token = resp.json()["Data"]["token"]
     return _token
@@ -73,7 +79,7 @@ def fetch_holdings(etf_code, query_date=None):
     token = _get_token()
     url = BUYBACK_URL + "?token=" + urllib.parse.quote(token, safe="")
     body = {"token": token, "FID": fund_id, "StartDate": (query_date or date.today()).strftime("%Y-%m-%d")}
-    resp = session.post(url, json=body, timeout=TIMEOUT)
+    resp = session.post(url, json=body, headers=HEADERS, timeout=TIMEOUT)
     resp.raise_for_status()
     payload = resp.json()
 
@@ -82,7 +88,7 @@ def fetch_holdings(etf_code, query_date=None):
         token = _get_token(refresh=True)
         url = BUYBACK_URL + "?token=" + urllib.parse.quote(token, safe="")
         body["token"] = token
-        resp = session.post(url, json=body, timeout=TIMEOUT)
+        resp = session.post(url, json=body, headers=HEADERS, timeout=TIMEOUT)
         resp.raise_for_status()
         payload = resp.json()
 
