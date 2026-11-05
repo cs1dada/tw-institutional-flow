@@ -33,8 +33,34 @@ def _fetch_with_retry(code, market):
     return None, []
 
 
+def purge_broken_snapshots(conn):
+    """刪除分析師人數整批缺漏的快照日期，回傳被刪除的日期。
+
+    yfinance 1.8 曾讓分析師人數整批變成空值 (2026-11-04、11-05)，那幾天的快照
+    全部會判定為分析師不足。Yahoo 沒有歷史可補抓，只能整份刪除，
+    日期選單就不會出現這些日期。正常的快照中缺分析師人數的只有零星幾檔。
+    """
+    broken = [
+        row["date"]
+        for row in conn.execute(
+            """
+            SELECT date FROM eps_estimate
+            WHERE eps_avg IS NOT NULL
+            GROUP BY date
+            HAVING SUM(analysts IS NULL) * 2 > COUNT(*)
+            """
+        )
+    ]
+    for day in broken:
+        conn.execute("DELETE FROM eps_estimate WHERE date = ?", (day,))
+        logger.warning("刪除分析師人數缺漏的 EPS 快照 %s", day)
+    conn.commit()
+    return broken
+
+
 def ingest_eps_estimates(conn, codes=None):
     """抓取題材分類個股的 EPS 共識並存入當日快照，回傳統計。"""
+    purged = purge_broken_snapshots(conn)
     codes = sorted(codes or classified_codes(load_themes()))
     markets = {r["code"]: r["market"] for r in conn.execute("SELECT code, market FROM stock_info")}
     today = date.today().strftime("%Y%m%d")
@@ -42,7 +68,7 @@ def ingest_eps_estimates(conn, codes=None):
 
     stats = {
         "date": today, "total": len(codes), "saved": 0, "missing": [], "errors": [], "foreign": {},
-        "no_analysts": 0,
+        "no_analysts": 0, "purged": purged,
     }
     fx_rates = {}
     consecutive = 0

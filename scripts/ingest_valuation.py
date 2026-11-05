@@ -28,6 +28,8 @@ def main():
     if stats["foreign"]:
         foreign = " ".join(f"{code}({cur})" for code, cur in stats["foreign"].items())
         print(f"  外幣計價、已換算台幣：{foreign}")
+    if stats["purged"]:
+        print(f"  刪除分析師人數缺漏的快照：{' '.join(stats['purged'])}")
     if stats["no_analysts"]:
         print(f"  沒有分析師人數：{stats['no_analysts']} 檔")
     if stats["missing"]:
