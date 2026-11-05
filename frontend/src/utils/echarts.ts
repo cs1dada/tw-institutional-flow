@@ -19,6 +19,7 @@ import {
     LegendComponent,
     MarkAreaComponent,
     MarkLineComponent,
+    TitleComponent,
     TooltipComponent,
 } from "echarts/components"
 import { use } from "echarts/core"
@@ -41,4 +42,6 @@ use([
     // 共識價帶與參考線
     MarkAreaComponent,
     MarkLineComponent,
+    // 多格圖表各自的標題 (大盤籌碼圖)
+    TitleComponent,
 ])

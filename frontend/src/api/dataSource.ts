@@ -19,6 +19,7 @@ import type {
     EtfData,
     HistoryData,
     IndexPayload,
+    MarketPayload,
     Meta,
     ThemesData,
     ThemesSnapshot,
@@ -50,6 +51,7 @@ const SOURCES = {
         themeHistory: () => versioned("data/theme_history.json"),
         etf: () => versioned("data/etf.json"),
         index: () => versioned("data/index.json"),
+        market: () => versioned("data/market.json"),
         etfCost: () => versioned("data/etf_cost.json"),
         etfCostDetail: (code: string) => versioned(`data/etf_cost/${code}.json`),
         etfDailyDates: () => versioned("data/etf_daily.json"),
@@ -69,6 +71,7 @@ const SOURCES = {
         themeHistory: () => "/api/theme-history",
         etf: () => "/api/etf-data",
         index: () => "/api/index-data",
+        market: () => "/api/market-data",
         etfCost: () => "/api/etf-cost",
         etfCostDetail: (code: string) => `/api/etf-cost/${code}`,
         etfDailyDates: () => "/api/etf-daily",
@@ -107,6 +110,7 @@ const cache: {
     themeHistory: HistoryData | null
     etf: EtfData | null
     index: IndexPayload | null
+    market: MarketPayload | null
     etfCost: EtfCostSummary | null
     etfCostDetails: Map<string, EtfCostDetail>
     etfDailyDates: EtfDailyDates | null
@@ -125,6 +129,7 @@ const cache: {
     themeHistory: null,
     etf: null,
     index: null,
+    market: null,
     etfCost: null,
     etfCostDetails: new Map(),
     etfDailyDates: null,
@@ -208,6 +213,18 @@ export async function loadIndex(): Promise<IndexPayload> {
     }
     const data = await fetchJson<IndexPayload>(SOURCES[MODE].index())
     cache.index = data
+    return data
+}
+
+export async function loadMarket(): Promise<MarketPayload> {
+    if (cache.market) {
+        return cache.market
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<MarketPayload>(SOURCES[MODE].market())
+    cache.market = data
     return data
 }
 

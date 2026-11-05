@@ -481,6 +481,69 @@ def build_index(conn, index_code=config.INDEX_TAIEX, days=INDEX_DAYS):
     }
 
 
+MARKET_CHIP_FIELDS = (
+    "date", "foreign", "trust", "dealer", "total",
+    "margin", "margin_units", "short_units", "maintenance",
+)
+# 櫃買指數輸出的交易日數，約兩年
+TPEX_INDEX_DAYS = 500
+# 總體指標每條序列輸出的筆數
+MACRO_POINTS = 300
+
+
+def _to_yi(value):
+    """元轉億元，保留兩位小數；缺值維持 None。"""
+    return None if value is None else round(value / 1e8, 2)
+
+
+def build_market(conn, days=config.MARKET_CHIP_DAYS):
+    """大盤頁的籌碼與總體指標：兩個市場的法人與融資、櫃買指數、匯率與 VIX。
+
+    金額一律換成億元。融資資料晚間才公布，最新一天可能只有法人、融資為 null，
+    前端各指標自行取最近一筆有值的資料。
+    """
+    chip = {"fields": list(MARKET_CHIP_FIELDS)}
+    for market in (config.MARKET_TWSE, config.MARKET_TPEX):
+        rows = conn.execute(
+            """
+            SELECT date, foreign_net, trust_net, dealer_net, total_net,
+                   margin_amount, margin_units, short_units, maintenance
+            FROM market_chip
+            WHERE market = ?
+              AND (total_net IS NOT NULL OR margin_amount IS NOT NULL)
+            ORDER BY date DESC
+            LIMIT ?
+            """,
+            (market, days),
+        ).fetchall()
+        chip[market] = [
+            [
+                row["date"],
+                _to_yi(row["foreign_net"]), _to_yi(row["trust_net"]),
+                _to_yi(row["dealer_net"]), _to_yi(row["total_net"]),
+                _to_yi(row["margin_amount"]), row["margin_units"], row["short_units"],
+                row["maintenance"],
+            ]
+            for row in reversed(rows)
+        ]
+
+    tpex = build_index(conn, config.INDEX_TPEX, TPEX_INDEX_DAYS)
+
+    macro = {}
+    for series in (config.MACRO_USDTWD, config.MACRO_TWVIX, config.MACRO_USVIX):
+        rows = conn.execute(
+            "SELECT date, value FROM macro_daily WHERE series = ? ORDER BY date DESC LIMIT ?",
+            (series, MACRO_POINTS),
+        ).fetchall()
+        macro[series] = [[row["date"], row["value"]] for row in reversed(rows)]
+
+    return {
+        "chip": chip,
+        "tpex_index": {"fields": tpex["fields"], "items": tpex["items"]},
+        "macro": macro,
+    }
+
+
 def build_meta(conn, limit=120):
     """日期清單與基本資訊。limit 為日期清單的天數上限，靜態匯出時依匯出天數放寬。"""
     return {

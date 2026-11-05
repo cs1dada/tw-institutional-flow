@@ -19,6 +19,7 @@ const TOKENS = {
     muted: "--text-muted",
     border: "--border",
     surface: "--surface-1",
+    surface0: "--surface-0",
     foreign: "--series-foreign",
     trust: "--series-trust",
     dealer: "--series-dealer",

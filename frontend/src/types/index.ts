@@ -243,6 +243,37 @@ export interface IndexPayload {
     items: (string | number | null)[][]
 }
 
+/**
+ * 大盤籌碼與總體指標 (market.json / /api/market-data)。
+ *
+ * 金額單位為億元。融資晚間才公布，最新一天的融資欄位可能為 null。
+ */
+export interface MarketPayload {
+    chip: {
+        fields: string[]
+        TWSE: (string | number | null)[][]
+        TPEX: (string | number | null)[][]
+    }
+    tpex_index: Pick<IndexPayload, "fields" | "items">
+    /** 各序列為 [日期, 值]，美國 VIX 的日期是美國時間 */
+    macro: Record<"USDTWD" | "TWVIX" | "USVIX", [string, number][]>
+}
+
+/** 展開後的單日大盤籌碼 */
+export interface ChipRow {
+    date: string
+    foreign: number | null
+    trust: number | null
+    dealer: number | null
+    total: number | null
+    /** 融資餘額 (億) */
+    margin: number | null
+    margin_units: number | null
+    short_units: number | null
+    /** 融資維持率 (%) */
+    maintenance: number | null
+}
+
 /** 展開後的單日指數 */
 export interface IndexRow {
     date: string

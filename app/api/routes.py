@@ -423,6 +423,16 @@ def api_index_data():
         conn.close()
 
 
+@router.get("/market-data")
+def api_market_data():
+    """大盤籌碼 (法人金額、融資融券與維持率)、櫃買指數、匯率與 VIX。"""
+    conn = connect()
+    try:
+        return dataset.build_market(conn)
+    finally:
+        conn.close()
+
+
 @router.get("/intraday")
 def api_intraday(force: bool = Query(False)):
     """盤中類股強弱。

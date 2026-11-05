@@ -190,6 +190,9 @@ def main():
         size = write_json(DATA_DIR / "index.json", dataset.build_index(conn))
         print(f"index.json  {size / 1024:.1f} KB")
 
+        size = write_json(DATA_DIR / "market.json", dataset.build_market(conn))
+        print(f"market.json  {size / 1024:.1f} KB")
+
         export_etf_cost(conn)
         export_etf_daily(conn, days)
         export_etf_report(conn, min(days, REPORT_DAYS))

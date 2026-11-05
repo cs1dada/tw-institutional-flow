@@ -78,6 +78,33 @@ CREATE TABLE IF NOT EXISTS index_daily (
 );
 CREATE INDEX IF NOT EXISTS idx_index_daily_code ON index_daily(index_code, date);
 
+-- 全市場籌碼：三大法人買賣金額與融資融券餘額 (market 為 TWSE / TPEX)。
+-- 法人約 15:00 公布、融資要到晚間，兩者分開寫入，尚未取得的欄位為 NULL
+CREATE TABLE IF NOT EXISTS market_chip (
+    date            TEXT NOT NULL,
+    market          TEXT NOT NULL,
+    foreign_net     REAL,              -- 外資及陸資 (含外資自營商) 買賣超，單位：元
+    trust_net       REAL,              -- 投信
+    dealer_net      REAL,              -- 自營商 (自行買賣 + 避險)
+    total_net       REAL,              -- 三大法人合計
+    margin_amount   REAL,              -- 融資餘額，單位：元
+    margin_units    INTEGER,           -- 融資餘額，單位：張
+    short_units     INTEGER,           -- 融券餘額，單位：張
+    margin_value    REAL,              -- 融資股票以當日收盤價計的市值，單位：元
+    maintenance     REAL,              -- 融資維持率 (%) = margin_value / margin_amount
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (date, market)
+);
+
+-- 總體指標日資料：美元兌台幣、台指 VIX、美國 VIX。
+-- 日期為各自市場的交易日，美國 VIX 的日期是美國時間
+CREATE TABLE IF NOT EXISTS macro_daily (
+    series          TEXT NOT NULL,
+    date            TEXT NOT NULL,
+    value           REAL NOT NULL,
+    PRIMARY KEY (series, date)
+);
+
 -- 主動式 ETF 每日持股明細 (由各投信官網取得，日期以其淨值日為準)
 CREATE TABLE IF NOT EXISTS etf_holding (
     date            TEXT NOT NULL,

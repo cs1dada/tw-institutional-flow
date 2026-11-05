@@ -21,6 +21,10 @@ on:
         description: '三大法人回補迄日 (YYYYMMDD)'
         default: ''
         required: false
+      market_days:
+        description: '大盤籌碼 (法人金額、融資維持率) 最多回補幾個交易日，空白則不回補'
+        default: ''
+        required: false
 
 permissions:
   contents: write
@@ -71,6 +75,15 @@ jobs:
           START: ${{ inputs.inst_start }}
           END: ${{ inputs.inst_end }}
         run: python -u scripts/backfill.py "$START" "$END"
+
+      # 每個交易日 4 個請求，250 天約一小時。每日排程也會慢慢補，這裡是一次補齊用
+      - name: 回補大盤籌碼
+        if: inputs.market_days != ''
+        timeout-minutes: 90
+        continue-on-error: true
+        env:
+          DAYS: ${{ inputs.market_days }}
+        run: python -u scripts/ingest_market.py "$DAYS"
 
       - name: 回補 ETF 持股
         if: inputs.etf_start != '' && inputs.etf_end != ''

@@ -37,7 +37,7 @@ const ITEMS: NavItem[] = [
     { to: "/intraday", label: "盤中觀察", desc: "類股即時強弱", apiOnly: true },
     { to: "/quote", label: "即時行情", desc: "富果：微台、大盤與個股", quoteOnly: true },
     { to: "/sino", label: "永豐行情", desc: "Shioaji：大台、大盤與個股", sinoOnly: true },
-    { to: "/index", label: "大盤指數", desc: "加權指數 K 線" },
+    { to: "/index", label: "大盤指數", desc: "K 線、法人、融資與 VIX" },
     { to: "/themes", label: "題材分類", desc: "題材、環節與個股" },
     { to: "/valuation", label: "估值趨勢矩陣", desc: "前瞻本益比 × 均線走勢" },
 ]

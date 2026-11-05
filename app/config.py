@@ -39,7 +39,44 @@ TWSE_QUOTE_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX"
 TWSE_INDEX_OHLC_URL = "https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST"
 TWSE_INDEX_VALUE_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK"
 INDEX_TAIEX = "TAIEX"
-INDEX_NAMES = {INDEX_TAIEX: "發行量加權股價指數"}
+INDEX_TPEX = "TPEX"
+INDEX_NAMES = {INDEX_TAIEX: "發行量加權股價指數", INDEX_TPEX: "櫃買指數"}
+
+# ---------------------------------------------------------------------------
+# 大盤籌碼與總體指標 (大盤頁的指標卡與籌碼圖)
+# ---------------------------------------------------------------------------
+
+# 三大法人買賣金額統計表 (全市場合計，單位為元)
+TWSE_INST_SUMMARY_URL = "https://www.twse.com.tw/rwd/zh/fund/BFI82U"
+TPEX_INST_SUMMARY_URL = "https://www.tpex.org.tw/www/zh-tw/insti/summary"
+# 融資融券餘額。證交所 selectType=ALL 同時回傳全市場合計與逐檔明細，
+# 櫃買只有逐檔明細，合計列放在明細最前面
+TWSE_MARGIN_URL = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN"
+TPEX_MARGIN_URL = "https://www.tpex.org.tw/www/zh-tw/margin/balance"
+# 櫃買指數，一次回傳整月的開高低收
+TPEX_INDEX_URL = "https://www.tpex.org.tw/www/zh-tw/indexInfo/inx"
+# 臺指選擇權波動率指數 (台指 VIX) 的每月日收盤檔，Big5 文字檔。
+# 期交所只保留近一年左右，更早的月份回 404 頁面
+TAIFEX_VIX_MONTH_URL = "https://www.taifex.com.tw/file/taifex/Dailydownload/vix/log2data/{month}new.txt"
+# Yahoo Finance 的日線端點，美元兌台幣與美國 VIX 都從這裡取
+YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+
+# 總體指標的序列代碼與 Yahoo 代號
+MACRO_USDTWD = "USDTWD"
+MACRO_TWVIX = "TWVIX"
+MACRO_USVIX = "USVIX"
+MACRO_YAHOO_SYMBOLS = {MACRO_USDTWD: "TWD=X", MACRO_USVIX: "^VIX"}
+# Yahoo 每次取回的區間，涵蓋籌碼圖的顯示範圍即可
+MACRO_YAHOO_RANGE = "2y"
+
+# 籌碼資料保留與回補的交易日數。每天要 4 個請求，一次回補完要將近一小時，
+# 因此每日排程每次只補 20 天 (約 4 分鐘)，兩週左右自然補齊；
+# 要一次補完可手動執行 backfill.yml 並填入 market_days
+MARKET_CHIP_DAYS = 250
+MARKET_BACKFILL_PER_RUN = 20
+# 融資資料約於晚間才公布，傍晚的排程常抓不到當天，
+# 最近這幾個交易日若仍缺融資就重抓
+MARKET_RECHECK_DAYS = 7
 
 # 上櫃 (櫃買中心)
 TPEX_INST_URL = "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade"

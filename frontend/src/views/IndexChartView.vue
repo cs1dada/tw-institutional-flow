@@ -3,12 +3,18 @@
  * 大盤指數 K 線。
  *
  * 只向後端要日線，週線與月線由前端聚合而成，切換週期與區間都不必重新請求。
+ * 頁首另有大盤指標卡 (櫃買、法人、融資、匯率、VIX)，K 線下方為大盤籌碼圖，
+ * 兩者的資料來自 market.json，載入失敗時不影響 K 線。
+ *
+ * 「查看日期」可回看過去某天：總覽與籌碼圖改以那天為最後一天，K 線的起迄不受影響。
  */
 import { computed, onMounted, ref } from "vue"
 import VChart from "vue-echarts"
 
-import { loadIndex } from "@/api/dataSource"
-import type { Bar, IndexPayload, Period, ZoomRange } from "@/types"
+import { loadIndex, loadMarket } from "@/api/dataSource"
+import MarketChipPanel from "@/components/MarketChipPanel.vue"
+import MarketOverview from "@/components/MarketOverview.vue"
+import type { Bar, IndexPayload, MarketPayload, Period, ZoomRange } from "@/types"
 import { formatDate, signed, toCompactDate } from "@/utils/format"
 import {
     DEFAULT_RANGE,
@@ -23,17 +29,62 @@ import {
     type RangeKey,
 } from "@/utils/indexBars"
 import { buildCandleOption } from "@/utils/candleChart"
+import { marketAsOf } from "@/utils/market"
 
 const INDEX_TABLE_ROWS = 20
 
 const payload = ref<IndexPayload | null>(null)
 const error = ref<string | null>(null)
+const market = ref<MarketPayload | null>(null)
 const period = ref<Period>("daily")
 const range = ref<RangeKey>("1y")
 const customFrom = ref<string | null>(null)
 const customTo = ref<string | null>(null)
 
 const rows = computed(() => (payload.value ? expandRows(payload.value) : []))
+
+/* ===== 查看日期 ===== */
+
+/** 回看的日期 (YYYYMMDD)，null 代表最新 */
+const asOf = ref<string | null>(null)
+
+/** 有籌碼資料的交易日，查看日期只能落在這個範圍 */
+const chipDates = computed(() => {
+    if (!market.value) {
+        return []
+    }
+    const at = market.value.chip.fields.indexOf("date")
+    return market.value.chip.TWSE.map((row) => String(row[at]))
+})
+
+const asOfLimits = computed(() => {
+    const dates = chipDates.value
+    return dates.length
+        ? { min: formatDate(dates[0]), max: formatDate(dates[dates.length - 1]) }
+        : { min: "", max: "" }
+})
+
+const asOfValue = computed(() => formatDate(asOf.value ?? chipDates.value[chipDates.value.length - 1] ?? ""))
+
+/** 選到假日時往前找最近的交易日；選到最新一天等同回到最新 */
+function onAsOfChange(event: Event) {
+    const picked = (event.target as HTMLInputElement).value.replace(/-/g, "")
+    const dates = chipDates.value
+    if (!picked || !dates.length || picked >= dates[dates.length - 1]) {
+        asOf.value = null
+        return
+    }
+    const day = [...dates].reverse().find((date) => date <= picked)
+    asOf.value = day ?? dates[0]
+}
+
+const viewMarket = computed(() =>
+    market.value && asOf.value ? marketAsOf(market.value, asOf.value) : market.value,
+)
+
+const viewTaiex = computed(() =>
+    asOf.value ? rows.value.filter((row) => row.date <= asOf.value!) : rows.value,
+)
 
 const bars = computed<Bar[]>(() =>
     rows.value.length ? withChange(aggregate(rows.value, period.value)) : [],
@@ -135,6 +186,12 @@ function onDateChange(which: "from" | "to", event: Event) {
 }
 
 onMounted(async () => {
+    // 籌碼資料是附加資訊，失敗只在主控台記錄
+    loadMarket()
+        .then((data) => {
+            market.value = data
+        })
+        .catch((err) => console.warn("大盤籌碼載入失敗", err))
     try {
         payload.value = await loadIndex()
     } catch (err) {
@@ -147,15 +204,39 @@ onMounted(async () => {
     <section class="view">
         <header class="page-head">
             <div>
-                <h1>加權指數 K 線</h1>
+                <h1>大盤指數</h1>
                 <p class="subtitle">
-                    發行量加權股價指數的開高低收與成交金額，週線與月線由日線聚合而成
+                    加權與櫃買指數、三大法人、融資融券與維持率、匯率與恐慌指標，
+                    以及加權指數的日週月 K 線
                 </p>
             </div>
             <div class="head-meta">
                 <span class="data-date">{{ error ? `載入失敗：${error}` : headline }}</span>
+                <!-- 回看過去某天：總覽與籌碼圖以那天為最後一天，K 線不受影響 -->
+                <div
+                    v-if="chipDates.length"
+                    class="asof"
+                    title="總覽與籌碼圖以選定的日期為最後一天，K 線的起迄不受影響"
+                >
+                    <label class="asof-label">
+                        <span>{{ asOf ? "回看" : "查看日期" }}</span>
+                        <input
+                            type="date"
+                            :value="asOfValue"
+                            :min="asOfLimits.min"
+                            :max="asOfLimits.max"
+                            :class="{ 'is-past': asOf }"
+                            @change="onAsOfChange"
+                        >
+                    </label>
+                    <button v-if="asOf" type="button" class="asof-reset" @click="asOf = null">回到最新</button>
+                </div>
             </div>
         </header>
+
+        <MarketOverview :taiex="viewTaiex" :market="viewMarket" />
+
+        <MarketChipPanel :taiex="viewTaiex" :market="viewMarket" />
 
         <div class="controls">
             <div class="control">
@@ -271,3 +352,42 @@ onMounted(async () => {
         </section>
     </section>
 </template>
+
+<style scoped>
+.head-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+.asof {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.asof-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+/* 回看中時把日期框標成投信橘，提醒目前看的不是最新資料 */
+.asof-label input.is-past {
+    border-color: var(--series-trust);
+    color: var(--series-trust);
+}
+
+.asof-reset {
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-1);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+}
+</style>

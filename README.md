@@ -46,6 +46,12 @@ python scripts/ingest_index.py                   # 只更新當月
 python scripts/ingest_index.py 120               # 回補最近 120 個月
 python scripts/ingest_index.py 202101 202609     # 指定起訖年月
 
+# 5-1. 大盤籌碼與總體指標 (大盤頁的指標卡與籌碼圖，需先有加權指數日線)
+#      三大法人金額、融資融券與維持率、櫃買指數、美元兌台幣、台指與美國 VIX
+python scripts/ingest_market.py                  # 補最近缺漏的日期，最多 20 天
+python scripts/ingest_market.py 250              # 一次回補 250 天 (約一小時)
+python scripts/ingest_market.py --date 20261104  # 重抓指定日期
+
 # 6. 回補個股開高低 (個股 K 線圖用)
 python scripts/backfill_ohlc.py 365               # 最近 365 個日曆日
 python scripts/backfill_ohlc.py 20250101 20260918 # 指定區間

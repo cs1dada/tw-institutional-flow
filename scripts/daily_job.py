@@ -10,6 +10,8 @@
    (上市約 16:00 才公布，排程跑得早會只拿到上櫃或整天沒有資料)
 6. 清除已不再追蹤的 ETF 持股 (例如停抓的海外 ETF)
 7. 抓取題材股的年度 EPS 共識 (Yahoo Finance，估值趨勢矩陣用)，失敗時只記錄、不中斷排程
+8. 大盤籌碼與總體指標：櫃買指數、三大法人金額、融資融券與維持率、匯率與 VIX。
+   籌碼的歷史每次只補一部分，失敗時只記錄、不中斷排程
 
 用法：
     python scripts/daily_job.py
@@ -28,6 +30,7 @@ from app.fetchers.etf import supported_etfs
 from app.services.etf_ingest import ingest_etf_holdings
 from app.services.etf_manual import import_manual
 from app.services.index_ingest import ingest_index_months
+from app.services.market_ingest import ingest_macro, ingest_pending_chip, ingest_tpex_index
 from app.services.ingest import ingest_date, update_stock_info
 from app.services.valuation import ingest_eps_estimates
 
@@ -132,6 +135,27 @@ def update_eps_estimates(conn):
         print(f"  抓取失敗：{' '.join(stats['errors'])}")
 
 
+def update_market(conn, today):
+    """大盤頁的籌碼與總體指標。來源眾多，任一項失敗都不影響主要資料的匯出。"""
+    try:
+        print(f"櫃買指數更新 {ingest_tpex_index(conn)} 個交易日")
+    except Exception:
+        logger.exception("櫃買指數抓取失敗")
+    try:
+        counts = ingest_macro(conn)
+        print("總體指標：" + "、".join(f"{k} {v} 筆" for k, v in counts.items()))
+    except Exception:
+        logger.exception("總體指標抓取失敗")
+    try:
+        # 今天若是交易日，加權指數已在前面寫入，會出現在交易日曆裡；
+        # 另外明確帶入今天，指數尚未公布時也能先抓法人
+        extra = [today] if date.today().weekday() < 5 else []
+        dates = ingest_pending_chip(conn=conn, extra_dates=extra)
+        print(f"大盤籌碼抓取 {len(dates)} 個交易日")
+    except Exception:
+        logger.exception("大盤籌碼抓取失敗")
+
+
 def main():
     init_schema()
     conn = connect()
@@ -167,6 +191,7 @@ def main():
 
         purge_untracked_etfs(conn)
         update_eps_estimates(conn)
+        update_market(conn, today)
     finally:
         conn.close()
 
