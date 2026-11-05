@@ -40,7 +40,10 @@ def ingest_eps_estimates(conn, codes=None):
     today = date.today().strftime("%Y%m%d")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    stats = {"date": today, "total": len(codes), "saved": 0, "missing": [], "errors": [], "foreign": {}}
+    stats = {
+        "date": today, "total": len(codes), "saved": 0, "missing": [], "errors": [], "foreign": {},
+        "no_analysts": 0,
+    }
     fx_rates = {}
     consecutive = 0
     for index, code in enumerate(codes):
@@ -91,7 +94,16 @@ def ingest_eps_estimates(conn, codes=None):
             ],
         )
         stats["saved"] += 1
+        if all(r["analysts"] is None for r in rows):
+            stats["no_analysts"] += 1
     conn.commit()
+    # yfinance 改版曾讓分析師人數整批變成空值，頁面因此全部判定為分析師不足；
+    # 這種情況不會拋出例外，只能從比例看出來
+    if stats["saved"] and stats["no_analysts"] > stats["saved"] / 2:
+        logger.error(
+            "%d / %d 檔有 EPS 卻沒有分析師人數，可能是 yfinance 或 Yahoo 回應格式改變",
+            stats["no_analysts"], stats["saved"],
+        )
     return stats
 
 

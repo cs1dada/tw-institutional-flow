@@ -11,6 +11,8 @@ endDate；yfinance 的 DataFrame 沒有這個欄位，所以讀它內部保存�
 換算成台幣由呼叫端以 fetch_fx_rate 處理。
 """
 import logging
+import math
+import numbers
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -20,20 +22,43 @@ YEAR_PERIODS = {"0y": 0, "+1y": 1}
 
 
 def _number(value):
-    """Yahoo 原始值可能是 {'raw': 1.2}、數字或缺值，一律轉為 float 或 None。"""
+    """Yahoo 原始值可能是 {'raw': 1.2}、數字或缺值，一律轉為 float 或 None。
+
+    DataFrame 取出的是 numpy 型別 (numpy.int64 不是 int 的子類別)，
+    以 numbers.Real 判斷才能一併接受。
+    """
     if isinstance(value, dict):
         value = value.get("raw")
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
         return None
-    if value != value or value in (float("inf"), float("-inf")):
+    value = float(value)
+    if math.isnan(value) or math.isinf(value):
         return None
-    return float(value)
+    return value
+
+
+def _trend_items(ticker_obj):
+    """取出 yfinance 內部保存的原始 earningsTrend 清單，格式不符時回傳 None。
+
+    yfinance 1.7 以前直接存 list；1.8 起改為依 EPS 計算方法分類的 dict，
+    預設方法的 key 是 None，內容為 {'trend': [...]}。
+    """
+    cache = getattr(getattr(ticker_obj, "_analysis", None), "_earnings_trend", None)
+    if isinstance(cache, list):
+        return cache
+    if isinstance(cache, dict):
+        # 優先用預設方法，沒有時取任一個有資料的
+        for key in [None, *cache.keys()]:
+            trend = (cache.get(key) or {}).get("trend") if isinstance(cache.get(key), dict) else None
+            if isinstance(trend, list) and trend:
+                return trend
+    return None
 
 
 def _from_raw_trend(ticker_obj):
-    """從 yfinance 保存的原始 earningsTrend 取年度預估，格式不符時回傳 None。"""
-    trend = getattr(getattr(ticker_obj, "_analysis", None), "_earnings_trend", None)
-    if not isinstance(trend, list):
+    """從原始 earningsTrend 取年度預估，格式不符時回傳 None。"""
+    trend = _trend_items(ticker_obj)
+    if trend is None:
         return None
     rows = []
     for item in trend:

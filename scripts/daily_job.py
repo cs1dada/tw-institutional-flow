@@ -126,6 +126,8 @@ def update_eps_estimates(conn):
         logger.exception("題材股 EPS 共識抓取失敗")
         return
     print(f"題材股 EPS 共識 {stats['saved']} / {stats['total']} 檔")
+    if stats["no_analysts"]:
+        print(f"  沒有分析師人數：{stats['no_analysts']} 檔")
     if stats["errors"]:
         print(f"  抓取失敗：{' '.join(stats['errors'])}")
 
