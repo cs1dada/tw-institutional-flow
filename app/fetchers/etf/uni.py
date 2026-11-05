@@ -24,9 +24,7 @@ TAIPEI = timezone(timedelta(hours=8))
 # ETF 代號對應統一投信內部的基金代碼
 FUND_CODES = {
     "00403A": "63YTW",
-    "00411A": "64YTW",
     "00981A": "49YTW",
-    "00988A": "61YTW",
 }
 
 # PCF 項目代碼

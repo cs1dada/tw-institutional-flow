@@ -8,7 +8,8 @@
 4. 更新大盤指數日線 (證交所以月為單位提供，重抓最近兩個月即可)
 5. 補抓近 7 天內資料不齊全的工作日
    (上市約 16:00 才公布，排程跑得早會只拿到上櫃或整天沒有資料)
-6. 抓取題材股的年度 EPS 共識 (Yahoo Finance，估值趨勢矩陣用)，失敗時只記錄、不中斷排程
+6. 清除已不再追蹤的 ETF 持股 (例如停抓的海外 ETF)
+7. 抓取題材股的年度 EPS 共識 (Yahoo Finance，估值趨勢矩陣用)，失敗時只記錄、不中斷排程
 
 用法：
     python scripts/daily_job.py
@@ -23,6 +24,7 @@ _bootstrap.setup_logging()
 
 from app import config
 from app.db import connect, init_schema
+from app.fetchers.etf import supported_etfs
 from app.services.etf_ingest import ingest_etf_holdings
 from app.services.etf_manual import import_manual
 from app.services.index_ingest import ingest_index_months
@@ -102,6 +104,20 @@ def index_months(conn):
     return INDEX_BACKFILL_MONTHS
 
 
+def purge_untracked_etfs(conn):
+    """刪除不在 ETF_ISSUER 內的 ETF 持股與快照，停抓的 ETF 才不會留在頁面上。"""
+    codes = supported_etfs()
+    marks = ",".join("?" * len(codes))
+    removed = {}
+    for table in ("etf_holding", "etf_snapshot"):
+        cur = conn.execute(f"DELETE FROM {table} WHERE etf_code NOT IN ({marks})", codes)
+        if cur.rowcount:
+            removed[table] = cur.rowcount
+    conn.commit()
+    if removed:
+        print("清除不再追蹤的 ETF：" + "、".join(f"{t} {n} 筆" for t, n in removed.items()))
+
+
 def update_eps_estimates(conn):
     """EPS 共識來自非官方介面，可能限流或改版，失敗時頁面沿用前一次的值。"""
     try:
@@ -147,6 +163,7 @@ def main():
         if not pending:
             print("近期無資料不齊全的日期")
 
+        purge_untracked_etfs(conn)
         update_eps_estimates(conn)
     finally:
         conn.close()
