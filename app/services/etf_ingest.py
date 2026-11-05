@@ -5,7 +5,7 @@
 """
 import logging
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from app.db import connect
 from app.fetchers import etf
@@ -15,6 +15,37 @@ logger = logging.getLogger(__name__)
 # 投信 API 偶爾會回傳不完整的內容，重試通常就能取得
 MAX_ATTEMPTS = 3
 RETRY_SECONDS = 2.0
+
+
+def _next_weekday(day):
+    """下一個平日 (不考慮國定假日，假日查無資料時沿用原本的結果)。"""
+    day += timedelta(days=1)
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return day
+
+
+def fetch_latest(code):
+    """抓取最新一日的持股。
+
+    以清單適用日查詢的投信 (中信、安聯等)，不帶日期時回傳的是當天適用的清單，
+    也就是前一營業日的持股；盤後次一營業日的清單公布後，要查次一營業日才拿得到當天持股。
+    因此取得的日期早於今天時，再以次一營業日查一次，有更新的日期就改用它。
+    """
+    data = fetch_with_retry(code)
+    today = date.today()
+    if not etf.query_next_day(code):
+        return data
+    if data and data.get("holdings") and data["date"] >= today.strftime("%Y%m%d"):
+        return data
+    try:
+        newer = etf.fetch_holdings(code, _next_weekday(today))
+    except Exception as exc:
+        logger.info("%s 次一營業日清單尚未公布：%s", code, exc)
+        return data
+    if newer and newer.get("holdings") and (not data or newer["date"] > data["date"]):
+        return newer
+    return data
 
 
 def _now():
@@ -89,7 +120,7 @@ def ingest_etf_holdings(conn=None, codes=None):
     try:
         for code in targets:
             try:
-                data = fetch_with_retry(code)
+                data = fetch_latest(code)
             except Exception as exc:
                 logger.error("%s 抓取失敗：%s", code, exc)
                 results.append({"etf_code": code, "status": "error", "message": str(exc)[:200]})
