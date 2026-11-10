@@ -273,9 +273,9 @@ const chartOption = computed(() => {
         // 分區名稱放左側，右側是最新資料與標記，放右邊會疊在一起
         label: { color: c.text, fontSize: 11, fontWeight: 600, position: "insideLeft" },
         data: zones.map((zone) => {
-            const hue = ({ panic: c.buy, alert: c.trust, safe: c.foreign, hot: c.purple } as Record<string, string>)[zone.hue]
-            // 透明度：淡 0x40、中 0x5c、濃 0x80，讓相鄰分區也分得出來
-            const alpha = ({ 1: "40", 2: "5c", 3: "80" } as Record<number, string>)[zone.strength]
+            const hue = ({ panic: c.zonePanic, alert: c.trust, safe: c.foreign, hot: c.purple } as Record<string, string>)[zone.hue]
+            // 透明度：淡 0x40、中 0x5c、濃 0x80；恐慌用鮮紅且接近不透明，一眼就看得到
+            const alpha = ({ 1: "40", 2: "5c", 3: "80", 4: "b8" } as Record<number, string>)[zone.strength]
             return [
                 { name: zone.label, yAxis: Math.max(zone.from, floor), itemStyle: { color: `${hue}${alpha}` } },
                 { yAxis: Math.min(zone.to, ceiling) },

@@ -24,6 +24,7 @@ const TOKENS = {
     trust: "--series-trust",
     dealer: "--series-dealer",
     purple: "--series-purple",
+    zonePanic: "--zone-panic",
 } as const
 
 export type ColorName = keyof typeof TOKENS

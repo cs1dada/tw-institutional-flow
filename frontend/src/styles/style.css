@@ -24,6 +24,8 @@
     --series-dealer: #1baf7a;
     /* 官方維持率過熱區，和恐慌的紅色區隔 */
     --series-purple: #7c5cd6;
+    /* 維持率與 VIX 的恐慌區色帶，比漲跌用的紅更鮮明 */
+    --zone-panic: #ff1a1a;
 }
 
 * {

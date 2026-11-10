@@ -112,13 +112,13 @@ export const VIX_ZONES = {
         { from: 0, to: 18, label: "平靜", tone: "normal", hue: "safe", strength: 2 },
         { from: 18, to: 25, label: "正常", tone: "normal", hue: "safe", strength: 1 },
         { from: 25, to: VIX_PANIC.TW, label: "警戒", tone: "alert", hue: "alert", strength: 2 },
-        { from: VIX_PANIC.TW, to: Infinity, label: "恐慌", tone: "panic", hue: "panic", strength: 2 },
+        { from: VIX_PANIC.TW, to: Infinity, label: "恐慌", tone: "panic", hue: "panic", strength: 4 },
     ],
     US: [
         { from: 0, to: 15, label: "平靜", tone: "normal", hue: "safe", strength: 2 },
         { from: 15, to: 20, label: "正常", tone: "normal", hue: "safe", strength: 1 },
         { from: 20, to: VIX_PANIC.US, label: "警戒", tone: "alert", hue: "alert", strength: 2 },
-        { from: VIX_PANIC.US, to: Infinity, label: "恐慌", tone: "panic", hue: "panic", strength: 2 },
+        { from: VIX_PANIC.US, to: Infinity, label: "恐慌", tone: "panic", hue: "panic", strength: 4 },
     ],
 } as const
 
@@ -152,10 +152,10 @@ export function maintenanceLevel(value: number): Level {
  * 配色參考 VIX 的慣例：恐慌為紅、警戒為橘、正常為藍。維持率過高代表融資浮盈多、
  * 有獲利了結的壓力，屬於另一種風險，改用紫色由淡到濃，避免和恐慌的紅色混淆。
  * 台股的綠色代表下跌，因此正常區不用綠色。
- * hue 為色系、strength 為色帶濃淡 (1 淡、2 中、3 濃)，實際顏色由圖表依主題決定。
+ * hue 為色系、strength 為色帶濃淡 (1 淡、2 中、3 濃、4 恐慌專用的鮮紅)，實際顏色由圖表依主題決定。
  */
 export const OFFICIAL_ZONES = [
-    { from: 0, to: 150, label: "恐慌", tone: "panic", hue: "panic", strength: 2 },
+    { from: 0, to: 150, label: "恐慌", tone: "panic", hue: "panic", strength: 4 },
     { from: 150, to: 160, label: "偏低", tone: "alert", hue: "alert", strength: 2 },
     { from: 160, to: 180, label: "正常", tone: "normal", hue: "safe", strength: 1 },
     { from: 180, to: 190, label: "偏熱", tone: "hot", hue: "hot", strength: 1 },
