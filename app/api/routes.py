@@ -10,6 +10,7 @@ from app.services import (
     etf_report,
     etf_trend,
     history,
+    holders,
     intraday,
     themes,
     valuation_grid,
@@ -543,6 +544,42 @@ def api_valuation_snapshot(date: str):
         conn.close()
     if payload is None:
         raise HTTPException(status_code=404, detail=f"{date} 沒有 EPS 共識快照")
+    return payload
+
+
+@router.get("/holders")
+def api_holders():
+    """集保股權分散的可選週次。"""
+    conn = connect()
+    try:
+        return holders.build_index(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/holders/stock/{code}")
+def api_holders_stock(code: str):
+    """單一個股的逐週大戶、散戶比例與最新兩週的完整級距。"""
+    conn = connect()
+    try:
+        payload = holders.build_stock(conn, code)
+    finally:
+        conn.close()
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"{code} 沒有股權分散資料")
+    return payload
+
+
+@router.get("/holders/{date}")
+def api_holders_week(date: str):
+    """一週的全市場個股，附與前一週相比的大戶、散戶變化。"""
+    conn = connect()
+    try:
+        payload = holders.build_week(conn, date)
+    finally:
+        conn.close()
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"{date} 沒有股權分散資料")
     return payload
 
 

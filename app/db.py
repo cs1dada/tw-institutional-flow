@@ -167,6 +167,20 @@ CREATE TABLE IF NOT EXISTS eps_estimate (
 );
 CREATE INDEX IF NOT EXISTS idx_eps_estimate_code ON eps_estimate(code, date);
 
+-- 集保戶股權分散表 (臺灣集中保管結算所)，每週一份，依持股級距列出人數與股數。
+-- level 1~15 為持股級距，16 為差異數調整，17 為合計。
+-- 開放資料只提供最新一週，過去的週次查不回來，因此每週都要匯入
+CREATE TABLE IF NOT EXISTS holder_dist (
+    date            TEXT NOT NULL,     -- 資料日 YYYYMMDD (每週最後一個營業日)
+    code            TEXT NOT NULL,
+    level           INTEGER NOT NULL,
+    people          INTEGER NOT NULL,
+    shares          INTEGER NOT NULL,
+    pct             REAL NOT NULL,     -- 佔集保庫存數比例 (%)
+    PRIMARY KEY (date, code, level)
+);
+CREATE INDEX IF NOT EXISTS idx_holder_dist_code ON holder_dist(code, date);
+
 -- 每日匯入狀態，供重跑與排錯使用
 CREATE TABLE IF NOT EXISTS ingest_log (
     date            TEXT NOT NULL,

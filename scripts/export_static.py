@@ -22,7 +22,7 @@ _bootstrap.setup_logging()
 
 from app import config
 from app.db import connect
-from app.services import dataset, etf_cost, etf_daily, etf_report, etf_trend, themes, valuation_grid
+from app.services import dataset, etf_cost, etf_daily, etf_report, etf_trend, holders, themes, valuation_grid
 
 DOCS_DIR = config.BASE_DIR / "docs"
 DATA_DIR = DOCS_DIR / "data"
@@ -162,6 +162,60 @@ def export_valuation(conn, days):
     print(f"valuation/*.json  {len(snapshots)} 檔，共 {day_bytes / 1024:.1f} KB")
 
 
+def _read_json(path):
+    """讀取既有的輸出檔，不存在或損毀時回傳 None。"""
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def export_holders(conn):
+    """集保股權分散：週次索引一個檔，每週一個檔，每檔個股的逐週走勢各一個檔。
+
+    開放資料只有最新一週，資料庫 (Actions 快取) 被清掉後舊週次查不回來，
+    因此與 market.json 一樣以既有檔案為底：舊的週檔不刪除，個股走勢以 holders.merge_stock 合併，
+    索引也納入資料庫已經沒有、但仍有週檔的週次。
+    """
+    holder_dir = DATA_DIR / "holders"
+    week_bytes = 0
+    db_weeks = holders.weeks(conn)
+    kept = 0
+    for item in db_weeks:
+        path = holder_dir / f"{item['date']}.json"
+        payload = holders.build_week(conn, item["date"])
+        if payload is None:
+            continue
+        # 資料庫缺了前一週時算不出週變化，可比較的檔數會變少，這時保留舊檔，不以較少的內容覆蓋
+        old = _read_json(path)
+        if old and len(old.get("rows", [])) > len(payload["rows"]):
+            kept += 1
+            continue
+        week_bytes += write_json(path, payload)
+
+    # 索引：資料庫的週次加上只剩週檔的週次
+    index = {item["date"]: item for item in db_weeks}
+    for path in holder_dir.glob("*.json"):
+        if path.stem in index:
+            continue
+        old = _read_json(path)
+        if old and old.get("date") == path.stem:
+            index[path.stem] = {"date": path.stem, "stock_count": old.get("stock_count", len(old.get("rows", [])))}
+    size = write_json(DATA_DIR / "holders.json", {"weeks": [index[d] for d in sorted(index, reverse=True)]})
+    print(f"holders.json  {size / 1024:.1f} KB，週檔更新 {len(db_weeks) - kept} 個共 {week_bytes / 1024:.1f} KB，保留舊檔 {kept} 個")
+
+    stock_dir = holder_dir / "stock"
+    stock_bytes = 0
+    codes = holders.stock_codes(conn)
+    for code in codes:
+        path = stock_dir / f"{code}.json"
+        payload = holders.merge_stock(_read_json(path), holders.build_stock(conn, code))
+        stock_bytes += write_json(path, payload)
+    print(f"holders/stock/*.json  {len(codes)} 檔，共 {stock_bytes / 1024 / 1024:.2f} MB")
+
+
 def main():
     args = [a for a in sys.argv[1:] if a != "--force"]
     force = "--force" in sys.argv
@@ -213,6 +267,7 @@ def main():
         export_themes(conn, min(days, REPORT_DAYS))
 
         export_valuation(conn, min(days, REPORT_DAYS))
+        export_holders(conn)
     finally:
         conn.close()
 

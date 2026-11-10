@@ -12,6 +12,8 @@
 7. 抓取題材股的年度 EPS 共識 (Yahoo Finance，估值趨勢矩陣用)，失敗時只記錄、不中斷排程
 8. 大盤籌碼與總體指標：櫃買指數、三大法人金額、融資融券與維持率、匯率與 VIX。
    籌碼的歷史每次只補一部分，失敗時只記錄、不中斷排程
+9. 集保股權分散表 (每週一份，開放資料只有最新一週)，並匯入 data/holders_manual/ 的補查資料。
+   每天都檢查，已匯入的週次會略過；失敗時只記錄、不中斷排程
 
 用法：
     python scripts/daily_job.py
@@ -29,6 +31,7 @@ from app.db import connect, init_schema
 from app.fetchers.etf import supported_etfs
 from app.services.etf_ingest import ingest_etf_holdings
 from app.services.etf_manual import import_manual
+from app.services import holders
 from app.services.index_ingest import ingest_index_months
 from app.services.market_ingest import ingest_macro, ingest_pending_chip, ingest_tpex_index
 from app.services.ingest import ingest_date, update_stock_info
@@ -156,6 +159,20 @@ def update_market(conn, today):
         logger.exception("大盤籌碼抓取失敗")
 
 
+def update_holders(conn):
+    """集保股權分散：沒抓到的週次之後無法回補，但不影響其他資料，失敗時只記錄。"""
+    try:
+        for week, count in holders.ingest_latest(conn).items():
+            print(f"集保股權分散 {week}：{f'匯入 {count} 檔' if count else '已匯入過'}")
+    except Exception:
+        logger.exception("集保股權分散抓取失敗")
+    try:
+        for week, count in holders.import_manual(conn).items():
+            print(f"集保股權分散 {week}：匯入補查資料 {count} 檔")
+    except Exception:
+        logger.exception("集保股權分散補查資料匯入失敗")
+
+
 def main():
     init_schema()
     conn = connect()
@@ -192,6 +209,7 @@ def main():
         purge_untracked_etfs(conn)
         update_eps_estimates(conn)
         update_market(conn, today)
+        update_holders(conn)
     finally:
         conn.close()
 
