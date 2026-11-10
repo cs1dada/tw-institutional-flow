@@ -22,10 +22,12 @@
     --series-foreign: #2a78d6;
     --series-trust: #eb6834;
     --series-dealer: #1baf7a;
-    /* 官方維持率過熱區，和恐慌的紅色區隔 */
-    --series-purple: #7c5cd6;
-    /* 維持率與 VIX 的恐慌區色帶，比漲跌用的紅更鮮明 */
-    --zone-panic: #ff1a1a;
+    /* 維持率與 VIX 的分區色階，參考 TradingView 技術分析「總結」儀表：深紅、紅、灰、藍、深藍 */
+    --zone-strong-sell: #991f29;
+    --zone-sell: #f23645;
+    --zone-neutral: #a8a8a8;
+    --zone-buy: #3179f5;
+    --zone-strong-buy: #1848cc;
 }
 
 * {

@@ -97,28 +97,31 @@ export const VIX_PANIC = { TW: 32, US: 30 } as const
 
 export interface Level {
     label: string
-    /** calm / normal / alert / panic，對應畫面上的色階；hot 為官方維持率過熱的紫色 */
-    tone: "calm" | "normal" | "alert" | "panic" | "hot"
+    /**
+     * calm / normal / alert / panic，對應畫面上的色階；
+     * strong-sell 到 strong-buy 為維持率與 VIX 分區用的 TradingView 五段色階
+     */
+    tone: "calm" | "normal" | "alert" | "panic" | "strong-sell" | "sell" | "neutral" | "buy" | "strong-buy"
 }
 
 /**
  * VIX 的分區。門檻是常見的經驗值，不是官方定義：
  * 美國 VIX 長期中位數約 17，台指 VIX 平時較高，門檻各自上調。
- * 配色依看盤軟體的慣例：低檔平靜與正常為藍 (安全)、警戒為橘、恐慌為紅，
- * 與官方維持率的分區共用 hue / strength 的寫法。
+ * 配色參考 TradingView 技術分析「總結」儀表的五段色階，與官方維持率的分區共用：
+ * 恐慌為深紅 (強力賣出)、警戒為紅 (賣出)、正常為灰 (中立)、平靜為藍 (買入)。
  */
 export const VIX_ZONES = {
     TW: [
-        { from: 0, to: 18, label: "平靜", tone: "normal", hue: "safe", strength: 2 },
-        { from: 18, to: 25, label: "正常", tone: "normal", hue: "safe", strength: 1 },
-        { from: 25, to: VIX_PANIC.TW, label: "警戒", tone: "alert", hue: "alert", strength: 2 },
-        { from: VIX_PANIC.TW, to: Infinity, label: "恐慌", tone: "panic", hue: "panic", strength: 4 },
+        { from: 0, to: 18, label: "平靜", tone: "buy" },
+        { from: 18, to: 25, label: "正常", tone: "neutral" },
+        { from: 25, to: VIX_PANIC.TW, label: "警戒", tone: "sell" },
+        { from: VIX_PANIC.TW, to: Infinity, label: "恐慌", tone: "strong-sell" },
     ],
     US: [
-        { from: 0, to: 15, label: "平靜", tone: "normal", hue: "safe", strength: 2 },
-        { from: 15, to: 20, label: "正常", tone: "normal", hue: "safe", strength: 1 },
-        { from: 20, to: VIX_PANIC.US, label: "警戒", tone: "alert", hue: "alert", strength: 2 },
-        { from: VIX_PANIC.US, to: Infinity, label: "恐慌", tone: "panic", hue: "panic", strength: 4 },
+        { from: 0, to: 15, label: "平靜", tone: "buy" },
+        { from: 15, to: 20, label: "正常", tone: "neutral" },
+        { from: 20, to: VIX_PANIC.US, label: "警戒", tone: "sell" },
+        { from: VIX_PANIC.US, to: Infinity, label: "恐慌", tone: "strong-sell" },
     ],
 } as const
 
@@ -149,18 +152,17 @@ export function maintenanceLevel(value: number): Level {
  * 官方全市場擔保維持率的分區，取自玉山證券投顧整理的市場實務觀察 (非官方標準)。
  * 原文沒有列 150% 到 160%，這裡當作恐慌與正常之間的過渡帶。
  *
- * 配色參考 VIX 的慣例：恐慌為紅、警戒為橘、正常為藍。維持率過高代表融資浮盈多、
- * 有獲利了結的壓力，屬於另一種風險，改用紫色由淡到濃，避免和恐慌的紅色混淆。
- * 台股的綠色代表下跌，因此正常區不用綠色。
- * hue 為色系、strength 為色帶濃淡 (1 淡、2 中、3 濃、4 恐慌專用的鮮紅)，實際顏色由圖表依主題決定。
+ * 配色參考 TradingView 技術分析「總結」儀表的五段色階，由低到高為
+ * 深紅 (恐慌)、紅 (偏低)、灰 (正常)、藍 (偏熱、高熱)、深藍 (極度樂觀)。
+ * 偏熱與高熱同為藍色，色帶的濃淡由圖表區分。台股的綠色代表下跌，因此不用綠色。
  */
 export const OFFICIAL_ZONES = [
-    { from: 0, to: 150, label: "恐慌", tone: "panic", hue: "panic", strength: 4 },
-    { from: 150, to: 160, label: "偏低", tone: "alert", hue: "alert", strength: 2 },
-    { from: 160, to: 180, label: "正常", tone: "normal", hue: "safe", strength: 1 },
-    { from: 180, to: 190, label: "偏熱", tone: "hot", hue: "hot", strength: 1 },
-    { from: 190, to: 200, label: "高熱", tone: "hot", hue: "hot", strength: 2 },
-    { from: 200, to: Infinity, label: "極度樂觀", tone: "hot", hue: "hot", strength: 3 },
+    { from: 0, to: 150, label: "恐慌", tone: "strong-sell" },
+    { from: 150, to: 160, label: "偏低", tone: "sell" },
+    { from: 160, to: 180, label: "正常", tone: "neutral" },
+    { from: 180, to: 190, label: "偏熱", tone: "buy" },
+    { from: 190, to: 200, label: "高熱", tone: "buy" },
+    { from: 200, to: Infinity, label: "極度樂觀", tone: "strong-buy" },
 ] as const
 
 export function officialLevel(value: number): Level {

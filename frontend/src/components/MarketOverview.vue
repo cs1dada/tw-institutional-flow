@@ -522,8 +522,24 @@ function levelClass(level: Level | null): string {
     color: var(--buy);
 }
 
-/* 官方維持率過熱 (偏熱、高熱、極度樂觀)，和恐慌的紅色區隔 */
-.level-hot {
-    color: var(--series-purple);
+/* 維持率與 VIX 分區的 TradingView 五段色階 */
+.level-strong-sell {
+    color: var(--zone-strong-sell);
+}
+
+.level-sell {
+    color: var(--zone-sell);
+}
+
+.level-neutral {
+    color: var(--text-secondary);
+}
+
+.level-buy {
+    color: var(--zone-buy);
+}
+
+.level-strong-buy {
+    color: var(--zone-strong-buy);
 }
 </style>

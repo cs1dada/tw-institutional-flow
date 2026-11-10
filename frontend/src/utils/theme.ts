@@ -23,8 +23,11 @@ const TOKENS = {
     foreign: "--series-foreign",
     trust: "--series-trust",
     dealer: "--series-dealer",
-    purple: "--series-purple",
-    zonePanic: "--zone-panic",
+    zoneStrongSell: "--zone-strong-sell",
+    zoneSell: "--zone-sell",
+    zoneNeutral: "--zone-neutral",
+    zoneBuy: "--zone-buy",
+    zoneStrongBuy: "--zone-strong-buy",
 } as const
 
 export type ColorName = keyof typeof TOKENS

@@ -116,9 +116,9 @@ const colorNote = computed(() => {
     if (info.key === "maintenance") {
         return "下方黑線為本站估算的民間版：各檔融資張數乘以收盤價的總市值，除以融資餘額，只看融資部位。"
             + `綠線為臺股儀表板公布的官方全市場擔保維持率，以投資人整戶融資融券合併計算，通常比民間版高，且不分上市上櫃。${officialSince}`
-            + "背景色帶是玉山證券投顧對官方維持率的分區，只適用於綠線，配色參考 VIX 的慣例："
-            + "150% 以下恐慌 (紅)、150% 到 160% 偏低 (橘)、160% 到 180% 正常 (藍)，"
-            + "180% 以上偏熱、190% 以上高熱、200% 以上極度樂觀 (紫色由淡到濃，代表追高風險)。"
+            + "背景色帶是玉山證券投顧對官方維持率的分區，只適用於綠線，配色參考 TradingView 技術分析的總結儀表："
+            + "150% 以下恐慌 (深紅)、150% 到 160% 偏低 (紅)、160% 到 180% 正常 (灰)、"
+            + "180% 到 200% 偏熱與高熱 (藍，由淡到濃)、200% 以上極度樂觀 (深藍)。"
     }
     if (info.kind === "ratio") {
         return "下方為融資餘額占總市值的比重，比重越高代表市場使用融資槓桿越多。市值資料來自臺股儀表板，上櫃只有近兩個月。"
@@ -132,8 +132,8 @@ const colorNote = computed(() => {
         const since = first
             ? `期交所只保留約三個月的檔案，台指 VIX 從 ${formatDate(first)} 起，之後每天累積。`
             : ""
-        return "下方黑線為台指 VIX，灰線為美國 VIX。背景色帶依台指 VIX 的門檻，配色參考看盤軟體的慣例："
-            + `18 以下平靜、18 到 25 正常 (藍)，25 以上警戒 (橘)，${VIX_PANIC.TW} 以上恐慌 (紅)；`
+        return "下方黑線為台指 VIX，灰線為美國 VIX。背景色帶依台指 VIX 的門檻，配色參考 TradingView 技術分析的總結儀表："
+            + `18 以下平靜 (藍)、18 到 25 正常 (灰)、25 以上警戒 (紅)、${VIX_PANIC.TW} 以上恐慌 (深紅)；`
             + `美國 VIX 門檻較低，恐慌門檻 ${VIX_PANIC.US} 另以灰色虛線標示。${since}`
     }
     if (info.kind === "net") {
@@ -256,6 +256,8 @@ const chartOption = computed(() => {
                     color: mark.color,
                     fontSize: 11,
                     fontWeight: 600,
+                    // 下方的數值可能落在深色色帶上，加淺色底才讀得到
+                    ...(lower ? { backgroundColor: `${c.surface}e6`, padding: [1, 3], borderRadius: 3 } : {}),
                     formatter: lower ? mark.lower!.text : labels[index],
                 },
             }
@@ -267,17 +269,35 @@ const chartOption = computed(() => {
     })
 
     /** 分區色帶，維持率與 VIX 共用。上下界寫到夠遠，實際只畫出縱軸範圍內的部分 */
-    type Zone = { from: number; to: number; label: string; hue: string; strength: number }
+    type Zone = { from: number; to: number; label: string; tone: string }
+    const zoneColors: Record<string, string> = {
+        "strong-sell": c.zoneStrongSell,
+        sell: c.zoneSell,
+        neutral: c.zoneNeutral,
+        buy: c.zoneBuy,
+        "strong-buy": c.zoneStrongBuy,
+    }
     const zoneArea = (zones: readonly Zone[], floor: number, ceiling: number) => ({
         silent: true,
         // 分區名稱放左側，右側是最新資料與標記，放右邊會疊在一起
         label: { color: c.text, fontSize: 11, fontWeight: 600, position: "insideLeft" },
-        data: zones.map((zone) => {
-            const hue = ({ panic: c.zonePanic, alert: c.trust, safe: c.foreign, hot: c.purple } as Record<string, string>)[zone.hue]
-            // 透明度：淡 0x40、中 0x5c、濃 0x80；恐慌用鮮紅且接近不透明，一眼就看得到
-            const alpha = ({ 1: "40", 2: "5c", 3: "80", 4: "b8" } as Record<number, string>)[zone.strength]
+        data: zones.map((zone, index) => {
+            // 同色相鄰的分區 (偏熱、高熱) 以濃淡區分，較高的一區較濃；中立的灰色淡一點，不搶線條。
+            // 兩端的深紅、深藍半透明時會偏灰，接近不透明才看得出深色
+            const sameAsPrev = index > 0 && zones[index - 1].tone === zone.tone
+            const alpha = zone.tone === "neutral"
+                ? "4d"
+                : zone.tone.startsWith("strong")
+                ? "c8"
+                : sameAsPrev ? "99" : "70"
             return [
-                { name: zone.label, yAxis: Math.max(zone.from, floor), itemStyle: { color: `${hue}${alpha}` } },
+                {
+                    name: zone.label,
+                    yAxis: Math.max(zone.from, floor),
+                    itemStyle: { color: `${zoneColors[zone.tone]}${alpha}` },
+                    // 深紅、深藍底上的黑字不好讀，改用白字
+                    ...(zone.tone.startsWith("strong") ? { label: { color: "#fff" } } : {}),
+                },
                 { yAxis: Math.min(zone.to, ceiling) },
             ]
         }),
