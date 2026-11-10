@@ -114,7 +114,7 @@ const colorNote = computed(() => {
     const info = metricInfo.value
     const officialSince = credit.value.length ? `官方資料從 ${formatDate(credit.value[0].date)} 起。` : ""
     if (info.key === "maintenance") {
-        return "下方灰線為本站估算的民間版：各檔融資張數乘以收盤價的總市值，除以融資餘額，只看融資部位。"
+        return "下方綠線為本站估算的民間版：各檔融資張數乘以收盤價的總市值，除以融資餘額，只看融資部位。"
             + `彩色線為臺股儀表板公布的官方全市場擔保維持率，以投資人整戶融資融券合併計算，通常比民間版高，且不分上市上櫃。${officialSince}`
             + "彩色線依玉山證券投顧對官方維持率的分區上色，虛線為各分區的門檻，配色參考 TradingView 技術分析的總結儀表："
             + "150% 以下恐慌 (深紅)、150% 到 160% 偏低 (紅)、160% 到 180% 正常 (灰)、"
@@ -132,7 +132,7 @@ const colorNote = computed(() => {
         const since = first
             ? `期交所只保留約三個月的檔案，台指 VIX 從 ${formatDate(first)} 起，之後每天累積。`
             : ""
-        return "下方彩色線為台指 VIX，依所在分區分段上色，淡灰線為美國 VIX。配色參考 TradingView 技術分析的總結儀表："
+        return "下方彩色線為台指 VIX，依所在分區分段上色，綠線為美國 VIX。配色參考 TradingView 技術分析的總結儀表："
             + `18 以下平靜 (藍)、18 到 25 正常 (灰)、25 以上警戒 (紅)、${VIX_PANIC.TW} 以上恐慌 (深紅)；`
             + `虛線為台指的門檻；美國 VIX 門檻較低 (恐慌 ${VIX_PANIC.US})，只畫線供對照。${since}`
     }
@@ -275,7 +275,8 @@ const chartOption = computed(() => {
      */
     type Zone = { from: number; to: number; label: string; tone: string }
     const zoneColors: Record<string, string> = {
-        "strong-sell": c.zoneStrongSell,
+        // 深紅畫成線太暗，調亮一點，仍比偏低、警戒的紅色深
+        "strong-sell": "#cc1f36",
         sell: c.zoneSell,
         // 中立的淺灰畫成線太淡，也會和民間版的灰線混在一起，線條改用主要文字色
         neutral: c.text,
@@ -321,8 +322,9 @@ const chartOption = computed(() => {
     const metricSeries = isVix
         ? [
             // 台指 VIX 依分區分段上色並畫門檻線；美國 VIX 門檻較低，畫成灰色細線只供對照
-            vixLine("台指 VIX", twVix.value, c.text, { markLine: zoneLines(VIX_ZONES.TW), lineStyle: { width: 2.2 } }),
-            vixLine("美國 VIX", usVix.value, `${c.secondary}99`, { lineStyle: { width: 1.2, color: `${c.secondary}99` } }),
+            vixLine("台指 VIX", twVix.value, c.text, { markLine: zoneLines(VIX_ZONES.TW), lineStyle: { width: 2.6 } }),
+            // 對照線用綠色，和分區的紅、黑、藍都不同色
+            vixLine("美國 VIX", usVix.value, c.dealer, { lineStyle: { width: 1.8, color: c.dealer } }),
         ]
         : isLine
         ? [
@@ -334,9 +336,9 @@ const chartOption = computed(() => {
                 data: values.map((value) => value ?? "-"),
                 symbol: "none",
                 connectNulls: true,
-                // 維持率頁籤的主角是分段上色的官方線，民間版改為深灰細線對照
-                lineStyle: { width: isMaintenance ? 1.4 : 1.8, color: isMaintenance ? c.secondary : c.text },
-                itemStyle: { color: isMaintenance ? c.secondary : c.text },
+                // 維持率頁籤的民間版是對照線，用綠色，和官方線分區的紅、黑、藍都不同色
+                lineStyle: { width: 1.8, color: isMaintenance ? c.dealer : c.text },
+                itemStyle: { color: isMaintenance ? c.dealer : c.text },
             },
             ...(isMaintenance
                 ? [{
@@ -348,7 +350,7 @@ const chartOption = computed(() => {
                     symbol: "none",
                     connectNulls: true,
                     // 依分區分段上色 (visualMap)，門檻畫淡色虛線
-                    lineStyle: { width: 2.2 },
+                    lineStyle: { width: 2.6 },
                     markLine: zoneLines(OFFICIAL_ZONES),
                 }]
                 : []),
@@ -458,9 +460,9 @@ const chartOption = computed(() => {
             },
             {
                 text: isVix
-                    ? "恐慌指標 VIX（彩色：台指依分區上色、淡灰：美國）"
+                    ? "恐慌指標 VIX（彩色：台指依分區上色、綠：美國）"
                     : isMaintenance
-                    ? `${MARKET_LABELS[marketKey.value]}融資維持率（彩色：官方全市場依分區上色、灰：民間版）`
+                    ? `${MARKET_LABELS[marketKey.value]}融資維持率（彩色：官方全市場依分區上色、綠：民間版）`
                     : isCalls
                     ? "全市場追繳戶數（維持率低於 130%）"
                     : info.kind === "ratio"
