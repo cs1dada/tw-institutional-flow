@@ -353,6 +353,13 @@ h2 {
     top: 24px;
     flex: none;
     width: 190px;
+    /*
+     * 區塊捷徑很多時 (例如題材分類) 導覽會比視窗高，sticky 元素超出視窗的部分要等頁面
+     * 捲到底才看得到，因此限制在視窗高度內並讓導覽自己捲動
+     */
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 14px 12px;
     background: var(--surface-1);
     border: 1px solid var(--border);
@@ -509,6 +516,8 @@ h2 {
         display: flex;
         gap: 8px;
         width: 100%;
+        max-height: none;
+        overflow-y: visible;
         /* 頁籤變多時改為橫向捲動，不再平均擠壓成直排文字 */
         overflow-x: auto;
     }

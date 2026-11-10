@@ -157,6 +157,26 @@ onBeforeUnmount(() => {
     }
 })
 
+/**
+ * 導覽比視窗高時會自己捲動，目前所在的區塊跑出導覽可視範圍時把它捲回來。
+ * 只捲導覽本身，不用 scrollIntoView，以免連帶捲動整個頁面
+ */
+watch(current, async () => {
+    await nextTick()
+    const nav = document.querySelector<HTMLElement>(".sidebar")
+    const item = nav?.querySelector<HTMLElement>(".sub-item.is-current")
+    if (!nav || !item || nav.scrollHeight <= nav.clientHeight) {
+        return
+    }
+    const navBox = nav.getBoundingClientRect()
+    const itemBox = item.getBoundingClientRect()
+    if (itemBox.top < navBox.top) {
+        nav.scrollTop -= navBox.top - itemBox.top + 8
+    } else if (itemBox.bottom > navBox.bottom) {
+        nav.scrollTop += itemBox.bottom - navBox.bottom + 8
+    }
+})
+
 // 切換頁籤時先清空，等新頁面渲染後再掃描
 watch(
     () => route.path,
