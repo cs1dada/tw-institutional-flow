@@ -97,8 +97,8 @@ export const VIX_PANIC = { TW: 32, US: 30 } as const
 
 export interface Level {
     label: string
-    /** calm / normal / alert / panic，對應畫面上的色階 */
-    tone: "calm" | "normal" | "alert" | "panic"
+    /** calm / normal / alert / panic，對應畫面上的色階；cold 為官方維持率偏低的冷色 */
+    tone: "calm" | "normal" | "alert" | "panic" | "cold"
 }
 
 /**
@@ -139,15 +139,18 @@ export function maintenanceLevel(value: number): Level {
 /**
  * 官方全市場擔保維持率的分區，取自玉山證券投顧整理的市場實務觀察 (非官方標準)。
  * 原文沒有列 150% 到 160%，這裡當作恐慌與正常之間的過渡帶。
- * 維持率太低是斷頭壓力，太高則是融資浮盈多、獲利了結的壓力，兩端都標成警示色。
+ *
+ * 配色採溫度計的概念，呼應原文「偏熱、高熱」的說法：越低越冷 (藍，斷頭壓力)，
+ * 越高越熱 (橘到紅，融資浮盈多、獲利了結的壓力)，正常為中性灰。
+ * hue 為色系、strength 為色帶濃淡 (1 淡、2 中、3 濃)，實際顏色由圖表依主題決定。
  */
 export const OFFICIAL_ZONES = [
-    { from: 0, to: 150, label: "恐慌", tone: "panic" },
-    { from: 150, to: 160, label: "偏低", tone: "alert" },
-    { from: 160, to: 180, label: "正常", tone: "normal" },
-    { from: 180, to: 190, label: "偏熱", tone: "alert" },
-    { from: 190, to: 200, label: "高熱", tone: "alert" },
-    { from: 200, to: Infinity, label: "極度樂觀", tone: "panic" },
+    { from: 0, to: 150, label: "恐慌", tone: "cold", hue: "cold", strength: 3 },
+    { from: 150, to: 160, label: "偏低", tone: "cold", hue: "cold", strength: 1 },
+    { from: 160, to: 180, label: "正常", tone: "calm", hue: "neutral", strength: 1 },
+    { from: 180, to: 190, label: "偏熱", tone: "alert", hue: "warm", strength: 1 },
+    { from: 190, to: 200, label: "高熱", tone: "alert", hue: "warm", strength: 3 },
+    { from: 200, to: Infinity, label: "極度樂觀", tone: "panic", hue: "hot", strength: 2 },
 ] as const
 
 export function officialLevel(value: number): Level {

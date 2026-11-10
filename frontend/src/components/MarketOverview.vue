@@ -521,4 +521,9 @@ function levelClass(level: Level | null): string {
 .level-panic {
     color: var(--buy);
 }
+
+/* 官方維持率偏低到恐慌，溫度計配色的冷端 */
+.level-cold {
+    color: var(--series-foreign);
+}
 </style>

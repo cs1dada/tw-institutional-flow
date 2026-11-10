@@ -115,7 +115,8 @@ const colorNote = computed(() => {
     if (info.key === "maintenance") {
         return "下方黑線為本站估算的民間版：各檔融資張數乘以收盤價的總市值，除以融資餘額，只看融資部位。"
             + `綠線為臺股儀表板公布的官方全市場擔保維持率，以投資人整戶融資融券合併計算，通常比民間版高，且不分上市上櫃。${officialSince}`
-            + "背景色帶是玉山證券投顧對官方維持率的分區：150% 以下恐慌 (紅)，180% 到 200% 偏熱與高熱 (淺橘)，200% 以上極度樂觀 (橘)，只適用於綠線。"
+            + "背景色帶是玉山證券投顧對官方維持率的分區，只適用於綠線：越低越冷 (藍，150% 以下恐慌)，"
+            + "160% 到 180% 為正常 (灰)，越高越熱 (橘，180% 以上偏熱、190% 以上高熱；紅，200% 以上極度樂觀)。"
     }
     if (info.kind === "ratio") {
         return "下方為融資餘額占總市值的比重，比重越高代表市場使用融資槓桿越多。市值資料來自臺股儀表板，上櫃只有近兩個月。"
@@ -314,21 +315,16 @@ const chartOption = computed(() => {
                     // 官方維持率的分區色帶。上下界寫到夠遠，實際只畫出縱軸範圍內的部分
                     markArea: {
                         silent: true,
-                        label: { color: c.muted, fontSize: 11, position: "insideTopRight" },
-                        data: OFFICIAL_ZONES
-                            .filter((zone) => zone.tone !== "normal" && zone.label !== "偏低")
-                            .map((zone) => [
-                                {
-                                    name: zone.label,
-                                    yAxis: Math.max(zone.from, 60),
-                                    itemStyle: {
-                                        color: zone.tone === "panic"
-                                            ? zone.from ? `${c.trust}2e` : `${c.buy}1f`
-                                            : `${c.trust}14`,
-                                    },
-                                },
+                        // 分區名稱放左側，右側是最新資料與最低點標記，放右邊會疊在一起
+                        label: { color: c.muted, fontSize: 11, position: "insideLeft" },
+                        data: OFFICIAL_ZONES.map((zone) => {
+                            const hue = { cold: c.foreign, neutral: c.muted, warm: c.trust, hot: c.buy }[zone.hue]
+                            const alpha = { 1: "12", 2: "22", 3: "2e" }[zone.strength]
+                            return [
+                                { name: zone.label, yAxis: Math.max(zone.from, 60), itemStyle: { color: `${hue}${alpha}` } },
                                 { yAxis: Math.min(zone.to, 300) },
-                            ]),
+                            ]
+                        }),
                     },
                 }]
                 : []),
