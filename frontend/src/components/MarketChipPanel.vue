@@ -271,11 +271,11 @@ const chartOption = computed(() => {
     const zoneArea = (zones: readonly Zone[], floor: number, ceiling: number) => ({
         silent: true,
         // 分區名稱放左側，右側是最新資料與標記，放右邊會疊在一起
-        label: { color: c.secondary, fontSize: 11, fontWeight: 600, position: "insideLeft" },
+        label: { color: c.text, fontSize: 11, fontWeight: 600, position: "insideLeft" },
         data: zones.map((zone) => {
             const hue = ({ panic: c.buy, alert: c.trust, safe: c.foreign, hot: c.purple } as Record<string, string>)[zone.hue]
-            // 透明度：淡 0x26、中 0x40、濃 0x5c，讓相鄰分區也分得出來
-            const alpha = ({ 1: "26", 2: "40", 3: "5c" } as Record<number, string>)[zone.strength]
+            // 透明度：淡 0x40、中 0x5c、濃 0x80，讓相鄰分區也分得出來
+            const alpha = ({ 1: "40", 2: "5c", 3: "80" } as Record<number, string>)[zone.strength]
             return [
                 { name: zone.label, yAxis: Math.max(zone.from, floor), itemStyle: { color: `${hue}${alpha}` } },
                 { yAxis: Math.min(zone.to, ceiling) },
