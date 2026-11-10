@@ -97,26 +97,35 @@ export const VIX_PANIC = { TW: 32, US: 30 } as const
 
 export interface Level {
     label: string
-    /** calm / normal / alert / panic，對應畫面上的色階；cold 為官方維持率偏低的冷色 */
-    tone: "calm" | "normal" | "alert" | "panic" | "cold"
+    /** calm / normal / alert / panic，對應畫面上的色階；hot 為官方維持率過熱的紫色 */
+    tone: "calm" | "normal" | "alert" | "panic" | "hot"
 }
 
 /**
- * VIX 的區間標籤。門檻是常見的經驗值，不是官方定義：
+ * VIX 的分區。門檻是常見的經驗值，不是官方定義：
  * 美國 VIX 長期中位數約 17，台指 VIX 平時較高，門檻各自上調。
+ * 配色依看盤軟體的慣例：低檔平靜與正常為藍 (安全)、警戒為橘、恐慌為紅，
+ * 與官方維持率的分區共用 hue / strength 的寫法。
  */
+export const VIX_ZONES = {
+    TW: [
+        { from: 0, to: 18, label: "平靜", tone: "normal", hue: "safe", strength: 2 },
+        { from: 18, to: 25, label: "正常", tone: "normal", hue: "safe", strength: 1 },
+        { from: 25, to: VIX_PANIC.TW, label: "警戒", tone: "alert", hue: "alert", strength: 2 },
+        { from: VIX_PANIC.TW, to: Infinity, label: "恐慌", tone: "panic", hue: "panic", strength: 2 },
+    ],
+    US: [
+        { from: 0, to: 15, label: "平靜", tone: "normal", hue: "safe", strength: 2 },
+        { from: 15, to: 20, label: "正常", tone: "normal", hue: "safe", strength: 1 },
+        { from: 20, to: VIX_PANIC.US, label: "警戒", tone: "alert", hue: "alert", strength: 2 },
+        { from: VIX_PANIC.US, to: Infinity, label: "恐慌", tone: "panic", hue: "panic", strength: 2 },
+    ],
+} as const
+
 export function vixLevel(value: number, market: "TW" | "US"): Level {
-    const [calm, alert, panic] = market === "US" ? [15, 20, VIX_PANIC.US] : [18, 25, VIX_PANIC.TW]
-    if (value >= panic) {
-        return { label: "恐慌", tone: "panic" }
-    }
-    if (value >= alert) {
-        return { label: "警戒", tone: "alert" }
-    }
-    if (value >= calm) {
-        return { label: "正常", tone: "normal" }
-    }
-    return { label: "平靜", tone: "calm" }
+    const zones = VIX_ZONES[market]
+    const zone = zones.find((item) => value < item.to) ?? zones[zones.length - 1]
+    return { label: zone.label, tone: zone.tone }
 }
 
 /**
@@ -140,17 +149,18 @@ export function maintenanceLevel(value: number): Level {
  * 官方全市場擔保維持率的分區，取自玉山證券投顧整理的市場實務觀察 (非官方標準)。
  * 原文沒有列 150% 到 160%，這裡當作恐慌與正常之間的過渡帶。
  *
- * 配色採溫度計的概念，呼應原文「偏熱、高熱」的說法：越低越冷 (藍，斷頭壓力)，
- * 越高越熱 (橘到紅，融資浮盈多、獲利了結的壓力)，正常為中性灰。
+ * 配色參考 VIX 的慣例：恐慌為紅、警戒為橘、正常為藍。維持率過高代表融資浮盈多、
+ * 有獲利了結的壓力，屬於另一種風險，改用紫色由淡到濃，避免和恐慌的紅色混淆。
+ * 台股的綠色代表下跌，因此正常區不用綠色。
  * hue 為色系、strength 為色帶濃淡 (1 淡、2 中、3 濃)，實際顏色由圖表依主題決定。
  */
 export const OFFICIAL_ZONES = [
-    { from: 0, to: 150, label: "恐慌", tone: "cold", hue: "cold", strength: 3 },
-    { from: 150, to: 160, label: "偏低", tone: "cold", hue: "cold", strength: 1 },
-    { from: 160, to: 180, label: "正常", tone: "calm", hue: "neutral", strength: 1 },
-    { from: 180, to: 190, label: "偏熱", tone: "alert", hue: "warm", strength: 1 },
-    { from: 190, to: 200, label: "高熱", tone: "alert", hue: "warm", strength: 3 },
-    { from: 200, to: Infinity, label: "極度樂觀", tone: "panic", hue: "hot", strength: 2 },
+    { from: 0, to: 150, label: "恐慌", tone: "panic", hue: "panic", strength: 2 },
+    { from: 150, to: 160, label: "偏低", tone: "alert", hue: "alert", strength: 2 },
+    { from: 160, to: 180, label: "正常", tone: "normal", hue: "safe", strength: 1 },
+    { from: 180, to: 190, label: "偏熱", tone: "hot", hue: "hot", strength: 1 },
+    { from: 190, to: 200, label: "高熱", tone: "hot", hue: "hot", strength: 2 },
+    { from: 200, to: Infinity, label: "極度樂觀", tone: "hot", hue: "hot", strength: 3 },
 ] as const
 
 export function officialLevel(value: number): Level {

@@ -19,6 +19,7 @@ import {
     MARKET_LABELS,
     OFFICIAL_ZONES,
     VIX_PANIC,
+    VIX_ZONES,
     callPeaks,
     expandChip,
     expandCredit,
@@ -115,8 +116,9 @@ const colorNote = computed(() => {
     if (info.key === "maintenance") {
         return "下方黑線為本站估算的民間版：各檔融資張數乘以收盤價的總市值，除以融資餘額，只看融資部位。"
             + `綠線為臺股儀表板公布的官方全市場擔保維持率，以投資人整戶融資融券合併計算，通常比民間版高，且不分上市上櫃。${officialSince}`
-            + "背景色帶是玉山證券投顧對官方維持率的分區，只適用於綠線：越低越冷 (藍，150% 以下恐慌)，"
-            + "160% 到 180% 為正常 (灰)，越高越熱 (橘，180% 以上偏熱、190% 以上高熱；紅，200% 以上極度樂觀)。"
+            + "背景色帶是玉山證券投顧對官方維持率的分區，只適用於綠線，配色參考 VIX 的慣例："
+            + "150% 以下恐慌 (紅)、150% 到 160% 偏低 (橘)、160% 到 180% 正常 (藍)，"
+            + "180% 以上偏熱、190% 以上高熱、200% 以上極度樂觀 (紫色由淡到濃，代表追高風險)。"
     }
     if (info.kind === "ratio") {
         return "下方為融資餘額占總市值的比重，比重越高代表市場使用融資槓桿越多。市值資料來自臺股儀表板，上櫃只有近兩個月。"
@@ -130,7 +132,9 @@ const colorNote = computed(() => {
         const since = first
             ? `期交所只保留約三個月的檔案，台指 VIX 從 ${formatDate(first)} 起，之後每天累積。`
             : ""
-        return `下方橘線為台指 VIX，藍線為美國 VIX，虛線為恐慌門檻 (台指 ${VIX_PANIC.TW}、美國 ${VIX_PANIC.US})。${since}`
+        return "下方黑線為台指 VIX，灰線為美國 VIX。背景色帶依台指 VIX 的門檻，配色參考看盤軟體的慣例："
+            + `18 以下平靜、18 到 25 正常 (藍)，25 以上警戒 (橘)，${VIX_PANIC.TW} 以上恐慌 (紅)；`
+            + `美國 VIX 門檻較低，恐慌門檻 ${VIX_PANIC.US} 另以灰色虛線標示。${since}`
     }
     if (info.kind === "net") {
         return "下方柱狀圖：紅色為買超，綠色為賣超。"
@@ -222,7 +226,7 @@ const chartOption = computed(() => {
             const source = point.market === "TW" ? twVix.value : usVix.value
             return {
                 date,
-                color: point.market === "TW" ? c.trust : c.foreign,
+                color: point.market === "TW" ? c.text : c.secondary,
                 lower: { value: source.get(date) ?? point.value, text: fmt(point.value, 2), below: false },
             }
         })
@@ -262,15 +266,23 @@ const chartOption = computed(() => {
         z: 5,
     })
 
-    /** 兩條門檻只差 2 點，標籤一上一下才不會疊在一起 */
-    const panicLine = (value: number, color: string, label: string, position: string) => ({
+    /** 分區色帶，維持率與 VIX 共用。上下界寫到夠遠，實際只畫出縱軸範圍內的部分 */
+    type Zone = { from: number; to: number; label: string; hue: string; strength: number }
+    const zoneArea = (zones: readonly Zone[], floor: number, ceiling: number) => ({
         silent: true,
-        symbol: "none",
-        lineStyle: { type: "dashed", color, width: 1 },
-        label: { formatter: `${label} ${value}`, color, fontSize: 11, position },
-        data: [{ yAxis: value }],
+        // 分區名稱放左側，右側是最新資料與標記，放右邊會疊在一起
+        label: { color: c.secondary, fontSize: 11, fontWeight: 600, position: "insideLeft" },
+        data: zones.map((zone) => {
+            const hue = ({ panic: c.buy, alert: c.trust, safe: c.foreign, hot: c.purple } as Record<string, string>)[zone.hue]
+            // 透明度：淡 0x26、中 0x40、濃 0x5c，讓相鄰分區也分得出來
+            const alpha = ({ 1: "26", 2: "40", 3: "5c" } as Record<number, string>)[zone.strength]
+            return [
+                { name: zone.label, yAxis: Math.max(zone.from, floor), itemStyle: { color: `${hue}${alpha}` } },
+                { yAxis: Math.min(zone.to, ceiling) },
+            ]
+        }),
     })
-    const vixLine = (name: string, source: Map<string, number>, color: string, markLine: object) => ({
+    const vixLine = (name: string, source: Map<string, number>, color: string, extra: object) => ({
         name,
         type: "line",
         xAxisIndex: 1,
@@ -280,13 +292,23 @@ const chartOption = computed(() => {
         connectNulls: true,
         lineStyle: { width: 1.8, color },
         itemStyle: { color },
-        markLine,
+        ...extra,
     })
 
     const metricSeries = isVix
         ? [
-            vixLine("台指 VIX", twVix.value, c.trust, panicLine(VIX_PANIC.TW, c.trust, "台指恐慌", "insideEndTop")),
-            vixLine("美國 VIX", usVix.value, c.foreign, panicLine(VIX_PANIC.US, c.foreign, "美國恐慌", "insideEndBottom")),
+            // 色帶依台指的門檻；美國門檻較低，只畫恐慌虛線
+            vixLine("台指 VIX", twVix.value, c.text, { markArea: zoneArea(VIX_ZONES.TW, 0, 100) }),
+            vixLine("美國 VIX", usVix.value, c.secondary, {
+                markLine: {
+                    silent: true,
+                    symbol: "none",
+                    lineStyle: { type: "dashed", color: c.secondary, width: 1 },
+                    // 圖上空間有限，標籤會壓到分區名稱或標記，門檻數值寫在下方說明
+                    label: { show: false },
+                    data: [{ yAxis: VIX_PANIC.US }],
+                },
+            }),
         ]
         : isLine
         ? [
@@ -312,20 +334,8 @@ const chartOption = computed(() => {
                     connectNulls: true,
                     lineStyle: { width: 1.8, color: c.dealer },
                     itemStyle: { color: c.dealer },
-                    // 官方維持率的分區色帶。上下界寫到夠遠，實際只畫出縱軸範圍內的部分
-                    markArea: {
-                        silent: true,
-                        // 分區名稱放左側，右側是最新資料與最低點標記，放右邊會疊在一起
-                        label: { color: c.muted, fontSize: 11, position: "insideLeft" },
-                        data: OFFICIAL_ZONES.map((zone) => {
-                            const hue = { cold: c.foreign, neutral: c.muted, warm: c.trust, hot: c.buy }[zone.hue]
-                            const alpha = { 1: "12", 2: "22", 3: "2e" }[zone.strength]
-                            return [
-                                { name: zone.label, yAxis: Math.max(zone.from, 60), itemStyle: { color: `${hue}${alpha}` } },
-                                { yAxis: Math.min(zone.to, 300) },
-                            ]
-                        }),
-                    },
+                    // 官方維持率的分區色帶
+                    markArea: zoneArea(OFFICIAL_ZONES, 60, 300),
                 }]
                 : []),
         ]
@@ -417,7 +427,7 @@ const chartOption = computed(() => {
             },
             {
                 text: isVix
-                    ? "恐慌指標 VIX（橘：台指、藍：美國）"
+                    ? "恐慌指標 VIX（黑：台指、灰：美國）"
                     : isMaintenance
                     ? `${MARKET_LABELS[marketKey.value]}融資維持率（黑：民間版、綠：官方全市場）`
                     : isCalls
@@ -473,6 +483,12 @@ const chartOption = computed(() => {
                 scale: !isNet,
                 splitNumber: 3,
                 // 色帶的上下界寫得很遠，縱軸只依線的資料決定範圍，不被色帶撐開
+                ...(isVix
+                    ? {
+                        min: (range: { min: number }) => Math.max(0, Math.floor((range.min - 2) / 5) * 5),
+                        max: (range: { max: number }) => Math.ceil((range.max + 2) / 5) * 5,
+                    }
+                    : {}),
                 ...(isMaintenance
                     ? {
                         min: (range: { min: number }) => Math.floor((range.min - 5) / 20) * 20,

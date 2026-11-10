@@ -22,6 +22,8 @@
     --series-foreign: #2a78d6;
     --series-trust: #eb6834;
     --series-dealer: #1baf7a;
+    /* 官方維持率過熱區，和恐慌的紅色區隔 */
+    --series-purple: #7c5cd6;
 }
 
 * {

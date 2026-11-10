@@ -522,8 +522,8 @@ function levelClass(level: Level | null): string {
     color: var(--buy);
 }
 
-/* 官方維持率偏低到恐慌，溫度計配色的冷端 */
-.level-cold {
-    color: var(--series-foreign);
+/* 官方維持率過熱 (偏熱、高熱、極度樂觀)，和恐慌的紅色區隔 */
+.level-hot {
+    color: var(--series-purple);
 }
 </style>
