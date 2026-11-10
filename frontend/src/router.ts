@@ -11,6 +11,7 @@ import ThemesView from "@/views/ThemesView.vue"
 import ValuationView from "@/views/ValuationView.vue"
 import EtfTrendView from "@/views/EtfTrendView.vue"
 import EtfView from "@/views/EtfView.vue"
+import HoldersView from "@/views/HoldersView.vue"
 
 /**
  * 用 hash 模式而非 history 模式：GitHub Pages 只會送檔案，
@@ -30,6 +31,7 @@ export const router = createRouter({
         { path: "/index", component: IndexChartView },
         { path: "/themes", component: ThemesView },
         { path: "/valuation", component: ValuationView },
+        { path: "/holders", component: HoldersView },
         { path: "/:pathMatch(.*)*", redirect: "/" },
     ],
 })

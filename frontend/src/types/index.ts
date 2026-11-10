@@ -965,3 +965,66 @@ export interface ValuationSnapshot {
     years: string[]
     stocks: ValuationStock[]
 }
+
+/* ---------- 集保股權分散 ---------- */
+
+/** 可選週次，新到舊 */
+export interface HoldersIndex {
+    weeks: { date: string; stock_count: number }[]
+}
+
+/** 一檔個股在某一週與前一週相比的變化，只列出有前一週資料的個股 */
+export interface HoldersRow {
+    code: string
+    name: string | null
+    industry: string | null
+    /** 是否收錄於題材分類 */
+    theme: boolean
+    holders: number
+    /** 千張大戶 (第 15 級) 佔集保庫存比例 (%) */
+    big_pct: number
+    holders_diff: number
+    holders_pct: number
+    /** 千張大戶比例的變化 (百分點) */
+    big_diff: number
+    /** 與前一週資料日相比的收盤漲跌 (%) */
+    price_pct: number | null
+}
+
+export interface HoldersWeek {
+    date: string
+    prev_date: string | null
+    /** 收盤價取自的交易日 */
+    trade_date: string | null
+    /** 當週有資料的證券數 (含 ETF 等) */
+    stock_count: number
+    /** 當週有資料、但前一週沒有資料可比較的個股數 */
+    uncompared: number
+    rows: HoldersRow[]
+}
+
+export interface HoldersLevel {
+    level: number
+    label: string
+    people: number
+    shares: number
+    pct: number
+}
+
+export interface HoldersStock {
+    code: string
+    name: string | null
+    series: {
+        date: string
+        holders: number
+        avg_lots: number
+        big_pct: number
+        big_people: number
+        big400_pct: number
+        small_pct: number
+        small_people: number
+        close: number | null
+    }[]
+    latest: { date: string; levels: HoldersLevel[] }
+    previous: { date: string; levels: HoldersLevel[] } | null
+}

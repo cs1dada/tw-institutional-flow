@@ -18,6 +18,9 @@ import type {
     EtfTrendData,
     EtfData,
     HistoryData,
+    HoldersIndex,
+    HoldersStock,
+    HoldersWeek,
     IndexPayload,
     MarketPayload,
     Meta,
@@ -63,6 +66,9 @@ const SOURCES = {
         themesSnapshot: (date: string) => versioned(`data/themes/${date}.json`),
         valuation: () => versioned("data/valuation.json"),
         valuationSnapshot: (date: string) => versioned(`data/valuation/${date}.json`),
+        holders: () => versioned("data/holders.json"),
+        holdersWeek: (date: string) => versioned(`data/holders/${date}.json`),
+        holdersStock: (code: string) => versioned(`data/holders/stock/${code}.json`),
     },
     api: {
         meta: () => "/api/meta",
@@ -83,6 +89,9 @@ const SOURCES = {
         themesSnapshot: (date: string) => `/api/themes/${date}`,
         valuation: () => "/api/valuation",
         valuationSnapshot: (date: string) => `/api/valuation/${date}`,
+        holders: () => "/api/holders",
+        holdersWeek: (date: string) => `/api/holders/${date}`,
+        holdersStock: (code: string) => `/api/holders/stock/${code}`,
     },
 } as const
 
@@ -122,6 +131,9 @@ const cache: {
     themesSnapshots: Map<string, ThemesSnapshot>
     valuation: ValuationIndex | null
     valuationSnapshots: Map<string, ValuationSnapshot>
+    holders: HoldersIndex | null
+    holdersWeeks: Map<string, HoldersWeek>
+    holdersStocks: Map<string, HoldersStock>
 } = {
     meta: null,
     days: new Map(),
@@ -141,6 +153,9 @@ const cache: {
     themesSnapshots: new Map(),
     valuation: null,
     valuationSnapshots: new Map(),
+    holders: null,
+    holdersWeeks: new Map(),
+    holdersStocks: new Map(),
 }
 
 export async function loadMeta(): Promise<Meta> {
@@ -369,5 +384,45 @@ export async function loadThemesSnapshot(date: string): Promise<ThemesSnapshot> 
     }
     const data = await fetchJson<ThemesSnapshot>(SOURCES[MODE].themesSnapshot(date))
     cache.themesSnapshots.set(date, data)
+    return data
+}
+
+export async function loadHolders(): Promise<HoldersIndex> {
+    if (cache.holders) {
+        return cache.holders
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<HoldersIndex>(SOURCES[MODE].holders())
+    cache.holders = data
+    return data
+}
+
+/** 集保股權分散的單一週，切換週次時才下載 */
+export async function loadHoldersWeek(date: string): Promise<HoldersWeek> {
+    const cached = cache.holdersWeeks.get(date)
+    if (cached) {
+        return cached
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<HoldersWeek>(SOURCES[MODE].holdersWeek(date))
+    cache.holdersWeeks.set(date, data)
+    return data
+}
+
+/** 單一個股的逐週走勢，點選個股時才下載 */
+export async function loadHoldersStock(code: string): Promise<HoldersStock> {
+    const cached = cache.holdersStocks.get(code)
+    if (cached) {
+        return cached
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<HoldersStock>(SOURCES[MODE].holdersStock(code))
+    cache.holdersStocks.set(code, data)
     return data
 }
