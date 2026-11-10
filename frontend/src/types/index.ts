@@ -257,6 +257,25 @@ export interface MarketPayload {
     tpex_index: Pick<IndexPayload, "fields" | "items">
     /** 各序列為 [日期, 值]，美國 VIX 的日期是美國時間 */
     macro: Record<"USDTWD" | "TWVIX" | "USVIX", [string, number][]>
+    /** 臺股儀表板的官方全市場擔保維持率與追繳處分，自 2026/08/03 起；舊版資料檔沒有 */
+    credit?: Pick<IndexPayload, "fields" | "items">
+    /** 年度融資占市值與信用交易占比，各市場為 [年, 融資占市值 %, 信用交易占比 %] */
+    credit_history?: { fields: string[]; TWSE?: [string, number | null, number | null][]; TPEX?: [string, number | null, number | null][] }
+}
+
+/** 展開後的單日官方信用交易指標 (全市場) */
+export interface CreditRow {
+    date: string
+    /** 全市場擔保維持率 (%)，整戶融資融券合併計算 */
+    keep_rate: number | null
+    /** 整戶擔保維持率低於 130% 的戶數 */
+    below_acc: number | null
+    /** 當日通知應補繳金額 (億) */
+    call_amt: number | null
+    /** 次一營業日應處分的戶數 */
+    exe_acc: number | null
+    /** 次一營業日應處分的金額 (億) */
+    exe_amt: number | null
 }
 
 /** 展開後的單日大盤籌碼 */
@@ -272,6 +291,12 @@ export interface ChipRow {
     short_units: number | null
     /** 融資維持率 (%) */
     maintenance: number | null
+    /** 融資餘額占總市值 (%) */
+    margin_ratio?: number | null
+    /** 信用交易成交值 / (總成交值 x 2) (%) */
+    credit_ratio?: number | null
+    /** 證交所公布的投資人違約金額 (億)，只有上市 */
+    default?: number | null
 }
 
 /** 展開後的單日指數 */

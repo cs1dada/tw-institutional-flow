@@ -3,7 +3,7 @@
  *
  * 全部是純函式，不碰 DOM 也不碰 Vue。
  */
-import type { ChipRow, MarketPayload } from "@/types"
+import type { ChipRow, CreditRow, MarketPayload } from "@/types"
 
 export type MarketKey = "TWSE" | "TPEX"
 
@@ -21,6 +21,10 @@ export const CHIP_METRICS = [
     { key: "margin", label: "融資餘額", unit: "億", kind: "level" },
     { key: "maintenance", label: "融資維持率", unit: "%", kind: "level" },
     { key: "short_units", label: "融券餘額", unit: "張", kind: "level" },
+    // 融資餘額占總市值，下方說明另列信用交易占成交比重與年度歷史
+    { key: "margin_ratio", label: "融資槓桿", unit: "%", kind: "ratio" },
+    // 官方資料只有全市場，切換上市上櫃時都畫同一條
+    { key: "calls", label: "追繳處分", unit: "戶", kind: "calls" },
     // 不分上市上櫃，下方同時畫台指與美國 VIX
     { key: "vix", label: "恐慌指標", unit: "VIX", kind: "vix" },
 ] as const
@@ -35,6 +39,21 @@ export function expandChip(payload: MarketPayload, market: MarketKey): ChipRow[]
             obj[name] = row[index]
         })
         return obj as unknown as ChipRow
+    })
+}
+
+/** 官方全市場信用交易指標，舊版資料檔沒有時回傳空陣列 */
+export function expandCredit(payload: MarketPayload): CreditRow[] {
+    const credit = payload.credit
+    if (!credit) {
+        return []
+    }
+    return credit.items.map((row) => {
+        const obj: Record<string, unknown> = {}
+        credit.fields.forEach((name, index) => {
+            obj[name] = row[index]
+        })
+        return obj as unknown as CreditRow
     })
 }
 
@@ -275,7 +294,12 @@ export function marketAsOf(payload: MarketPayload, date: string): MarketPayload 
     for (const [key, points] of Object.entries(payload.macro) as [keyof MarketPayload["macro"], [string, number][]][]) {
         macro[key] = points.filter(([day]) => day <= date)
     }
+    const credit = payload.credit && {
+        fields: payload.credit.fields,
+        items: upTo(payload.credit.items, payload.credit.fields.indexOf("date")),
+    }
     return {
+        ...payload,
         chip: {
             fields: payload.chip.fields,
             TWSE: upTo(payload.chip.TWSE, chipDate),
@@ -283,6 +307,7 @@ export function marketAsOf(payload: MarketPayload, date: string): MarketPayload 
         },
         tpex_index: { fields: payload.tpex_index.fields, items: upTo(payload.tpex_index.items, indexDate) },
         macro,
+        credit,
     }
 }
 
@@ -295,6 +320,20 @@ export function maintenanceLows(rows: ChipRow[]): Point[] {
         .filter((row) => typeof row.maintenance === "number")
         .map((row) => ({ date: row.date, value: row.maintenance as number }))
     return extremeDays(points, "min", 5, 10)
+}
+
+/**
+ * 追繳戶數 (低於 130%) 明顯暴增的日子：最多取 5 天，彼此相隔至少 10 個交易日，
+ * 且至少要有最高那天的 30%。平時每天也有一兩百戶，不篩掉的話會把平常日子也標出來。
+ * 籌碼圖的標記與下方對照表共用。
+ */
+export function callPeaks(rows: CreditRow[]): Point[] {
+    const points = rows
+        .filter((row) => typeof row.below_acc === "number")
+        .map((row) => ({ date: row.date, value: row.below_acc as number }))
+    const peaks = extremeDays(points, "max", 5, 10)
+    const top = peaks[0]?.value ?? 0
+    return peaks.filter((point) => point.value >= top * 0.3)
 }
 
 export interface VixHigh extends Point {

@@ -12,6 +12,7 @@ import { expandRows } from "@/utils/indexBars"
 import {
     MARKET_LABELS,
     expandChip,
+    expandCredit,
     latestOf,
     latestPoint,
     maintenanceLevel,
@@ -88,6 +89,12 @@ const chips = computed(() => {
             short: latestOf(rows, "short_units"),
         }
     })
+})
+
+/** 官方全市場擔保維持率與追繳戶數，兩張融資卡都顯示同一組 */
+const official = computed(() => {
+    const rows = props.market ? expandCredit(props.market) : []
+    return rows.length ? rows[rows.length - 1] : null
 })
 
 /**
@@ -213,6 +220,10 @@ function levelClass(level: Level | null): string {
                             {{ maintenanceLevel(chip.maintenance.value).label }}
                         </span>
                     </template>
+                </div>
+                <div v-if="official?.keep_rate != null" class="tile-foot">
+                    官方全市場 <strong>{{ fmt(official.keep_rate) }}%</strong>
+                    <span v-if="official.below_acc != null">追繳 {{ fmt(official.below_acc, 0) }} 戶</span>
                 </div>
                 <div v-if="chip.short" class="tile-foot">
                     融券 {{ fmt(chip.short.value, 0) }} 張

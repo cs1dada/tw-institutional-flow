@@ -484,11 +484,19 @@ def build_index(conn, index_code=config.INDEX_TAIEX, days=INDEX_DAYS):
 MARKET_CHIP_FIELDS = (
     "date", "foreign", "trust", "dealer", "total",
     "margin", "margin_units", "short_units", "maintenance",
+    "margin_ratio", "credit_ratio", "default",
 )
+# 官方全市場擔保維持率與追繳處分 (臺股儀表板)，金額為億元
+MARKET_CREDIT_FIELDS = ("date", "keep_rate", "below_acc", "call_amt", "exe_acc", "exe_amt")
 # 櫃買指數輸出的交易日數，約兩年
 TPEX_INDEX_DAYS = 500
 # 總體指標每條序列輸出的筆數
 MACRO_POINTS = 300
+
+
+def _ratio(part, whole, digits=2):
+    """百分比；任一缺值時回傳 None。"""
+    return round(part / whole * 100, digits) if part and whole else None
 
 
 def _to_yi(value):
@@ -497,7 +505,8 @@ def _to_yi(value):
 
 
 def build_market(conn, days=config.MARKET_CHIP_DAYS):
-    """大盤頁的籌碼與總體指標：兩個市場的法人與融資、櫃買指數、匯率與 VIX。
+    """大盤頁的籌碼與總體指標：兩個市場的法人與融資、櫃買指數、匯率與 VIX，
+    以及臺股儀表板的官方維持率、追繳處分、融資占市值與信用交易占比。
 
     金額一律換成億元。融資資料晚間才公布，最新一天可能只有法人、融資為 null，
     前端各指標自行取最近一筆有值的資料。
@@ -506,15 +515,19 @@ def build_market(conn, days=config.MARKET_CHIP_DAYS):
     for market in (config.MARKET_TWSE, config.MARKET_TPEX):
         rows = conn.execute(
             """
-            SELECT date, foreign_net, trust_net, dealer_net, total_net,
-                   margin_amount, margin_units, short_units, maintenance
-            FROM market_chip
-            WHERE market = ?
-              AND (total_net IS NOT NULL OR margin_amount IS NOT NULL)
-            ORDER BY date DESC
+            SELECT m.date, m.foreign_net, m.trust_net, m.dealer_net, m.total_net,
+                   m.margin_amount, m.margin_units, m.short_units, m.maintenance,
+                   c.market_cap, c.credit_amount, c.default_amt,
+                   COALESCE(c.turnover, i.turnover) AS turnover
+            FROM market_chip m
+            LEFT JOIN market_credit c ON c.date = m.date AND c.market = m.market
+            LEFT JOIN index_daily i ON i.date = m.date AND i.index_code = ? AND m.market = ?
+            WHERE m.market = ?
+              AND (m.total_net IS NOT NULL OR m.margin_amount IS NOT NULL)
+            ORDER BY m.date DESC
             LIMIT ?
             """,
-            (market, days),
+            (config.INDEX_TAIEX, config.MARKET_TWSE, market, days),
         ).fetchall()
         chip[market] = [
             [
@@ -523,11 +536,42 @@ def build_market(conn, days=config.MARKET_CHIP_DAYS):
                 _to_yi(row["dealer_net"]), _to_yi(row["total_net"]),
                 _to_yi(row["margin_amount"]), row["margin_units"], row["short_units"],
                 row["maintenance"],
+                # 上市約 0.4%，多留一位小數才看得出變化
+                _ratio(row["margin_amount"], row["market_cap"], 3),
+                # 儀表板的定義：信用交易成交值 / (總成交值 x 2)
+                _ratio(row["credit_amount"], row["turnover"] and row["turnover"] * 2),
+                _to_yi(row["default_amt"]),
             ]
             for row in reversed(rows)
         ]
 
     tpex = build_index(conn, config.INDEX_TPEX, TPEX_INDEX_DAYS)
+
+    rows = conn.execute(
+        """
+        SELECT date, keep_rate, below_acc_num, call_amt, exe_acc_num, exe_amt
+        FROM market_credit
+        WHERE market = 'ALL' AND keep_rate IS NOT NULL
+        ORDER BY date DESC
+        LIMIT ?
+        """,
+        (days,),
+    ).fetchall()
+    credit = {
+        "fields": list(MARKET_CREDIT_FIELDS),
+        "items": [
+            [row["date"], row["keep_rate"], row["below_acc_num"], _to_yi(row["call_amt"]),
+             row["exe_acc_num"], _to_yi(row["exe_amt"])]
+            for row in reversed(rows)
+        ],
+    }
+    history = {}
+    for row in conn.execute(
+        "SELECT market, year, margin_ratio, credit_ratio FROM credit_history ORDER BY market, year"
+    ):
+        history.setdefault(row["market"], []).append(
+            [row["year"], row["margin_ratio"], row["credit_ratio"]]
+        )
 
     macro = {}
     for series in (config.MACRO_USDTWD, config.MACRO_TWVIX, config.MACRO_USVIX):
@@ -541,6 +585,8 @@ def build_market(conn, days=config.MARKET_CHIP_DAYS):
         "chip": chip,
         "tpex_index": {"fields": tpex["fields"], "items": tpex["items"]},
         "macro": macro,
+        "credit": credit,
+        "credit_history": {"fields": ["year", "margin_ratio", "credit_ratio"], **history},
     }
 
 
@@ -597,6 +643,20 @@ def merge_market(old, new, days=config.MARKET_CHIP_DAYS):
         series: _merge_rows(["date", "value"], old_macro.get(series), ["date", "value"], points, MACRO_POINTS)
         for series, points in new["macro"].items()
     }
+
+    old_credit = old.get("credit") or {}
+    result["credit"] = {
+        "fields": new["credit"]["fields"],
+        "items": _merge_rows(
+            old_credit.get("fields"), old_credit.get("items"),
+            new["credit"]["fields"], new["credit"]["items"], days,
+        ),
+    }
+    # 年度資料來源每次都給完整歷史，抓取失敗而沒有資料時才沿用舊檔
+    has_history = any(key != "fields" for key in new["credit_history"])
+    result["credit_history"] = new["credit_history"] if has_history else (
+        old.get("credit_history") or new["credit_history"]
+    )
     return result
 
 

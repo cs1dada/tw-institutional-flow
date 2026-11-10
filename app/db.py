@@ -96,6 +96,35 @@ CREATE TABLE IF NOT EXISTS market_chip (
     PRIMARY KEY (date, market)
 );
 
+-- 臺股儀表板的信用交易風險指標 (market 為 TWSE / TPEX / ALL)。
+-- ALL 列為官方全市場擔保維持率與追繳處分；TWSE、TPEX 列為市值、成交值與信用交易成交值，
+-- 供計算融資占市值與信用交易占成交比重；違約金額為證交所公布，記在 TWSE 列
+CREATE TABLE IF NOT EXISTS market_credit (
+    date            TEXT NOT NULL,
+    market          TEXT NOT NULL,
+    keep_rate       REAL,              -- 全市場擔保維持率 (%)，整戶融資融券合併計算
+    below_acc_num   INTEGER,           -- 整戶擔保維持率低於 130% 的戶數
+    call_amt        REAL,              -- 當日通知應補繳金額，單位：元
+    exe_acc_num     INTEGER,           -- 次一營業日應處分的戶數
+    exe_amt         REAL,              -- 次一營業日應處分的金額，單位：元
+    market_cap      REAL,              -- 總市值，單位：元
+    turnover        REAL,              -- 總成交值，單位：元
+    credit_amount   REAL,              -- 信用交易 (融資融券) 成交值，單位：元
+    default_amt     REAL,              -- 投資人違約金額 (買賣合計)，單位：元
+    default_net_amt REAL,              -- 投資人違約金額 (買賣相抵後)，單位：元
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (date, market)
+);
+
+-- 年度融資占市值與信用交易占成交比重 (%)，當年度為截至上個月底
+CREATE TABLE IF NOT EXISTS credit_history (
+    market          TEXT NOT NULL,
+    year            TEXT NOT NULL,
+    margin_ratio    REAL,
+    credit_ratio    REAL,
+    PRIMARY KEY (market, year)
+);
+
 -- 總體指標日資料：美元兌台幣、台指 VIX、美國 VIX。
 -- 日期為各自市場的交易日，美國 VIX 的日期是美國時間
 CREATE TABLE IF NOT EXISTS macro_daily (

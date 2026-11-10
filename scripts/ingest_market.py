@@ -1,4 +1,5 @@
-"""匯入大盤籌碼 (三大法人金額、融資融券與維持率)、櫃買指數、匯率與 VIX。
+"""匯入大盤籌碼 (三大法人金額、融資融券與維持率)、櫃買指數、匯率與 VIX，
+以及臺股儀表板的官方維持率、追繳處分與槓桿指標。
 
 籌碼每個交易日要 4 個請求，交易日曆取自加權指數，因此要先跑過 ingest_index.py。
 每日排程 (daily_job.py) 已會呼叫這裡的流程，每次補一部分缺漏；
@@ -17,6 +18,7 @@ _bootstrap.setup_logging()
 
 from app import config
 from app.db import connect, init_schema
+from app.services.credit_ingest import ingest_credit
 from app.services.market_ingest import (
     ingest_chip_date,
     ingest_macro,
@@ -40,6 +42,8 @@ def main():
         print("總體指標：" + "、".join(f"{k} {v} 筆" for k, v in counts.items()))
         dates = ingest_pending_chip(conn=conn, limit=limit)
         print(f"大盤籌碼抓取 {len(dates)} 個交易日")
+        counts = ingest_credit(conn)
+        print("信用交易指標：" + "、".join(f"{k} {v} 筆" for k, v in counts.items()))
     finally:
         conn.close()
 

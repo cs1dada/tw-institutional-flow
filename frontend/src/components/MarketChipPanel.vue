@@ -3,19 +3,24 @@
  * 大盤籌碼圖：上方為指數收盤，下方為三大法人買賣超或融資融券，
  * 可切換上市／上櫃與指標。下方另列「融資餘額與今天相近的日子」，
  * 對照同樣的融資水位當時指數在哪裡。
+ *
+ * 官方全市場擔保維持率與追繳處分來自臺股儀表板，只有全市場合計，
+ * 切換上市上櫃時畫的是同一條。
  */
 import { computed, ref } from "vue"
 import VChart from "vue-echarts"
 
 import MarketChipInsight from "@/components/MarketChipInsight.vue"
-import type { ChipRow, IndexRow, MarketPayload } from "@/types"
+import type { ChipRow, CreditRow, IndexRow, MarketPayload } from "@/types"
 import { formatDate } from "@/utils/format"
 import { expandRows } from "@/utils/indexBars"
 import {
     CHIP_METRICS,
     MARKET_LABELS,
     VIX_PANIC,
+    callPeaks,
     expandChip,
+    expandCredit,
     maintenanceLows,
     similarMarginDays,
     vixHighs,
@@ -62,6 +67,10 @@ const visible = computed(() => rows.value.slice(-span.value))
 const twVix = computed(() => new Map(props.market?.macro.TWVIX ?? []))
 const usVix = computed(() => new Map(props.market?.macro.USVIX ?? []))
 
+/** 官方全市場信用交易指標 */
+const credit = computed<CreditRow[]>(() => (props.market ? expandCredit(props.market) : []))
+const creditByDate = computed(() => new Map(credit.value.map((row) => [row.date, row])))
+
 const similar = computed(() => similarMarginDays(rows.value, closes.value))
 
 const coverage = computed(() => {
@@ -76,8 +85,17 @@ const coverage = computed(() => {
 /** 下方柱狀圖的配色說明：法人看買賣超正負，餘額類看較前一日增減 */
 const colorNote = computed(() => {
     const info = metricInfo.value
+    const officialSince = credit.value.length ? `官方資料從 ${formatDate(credit.value[0].date)} 起。` : ""
     if (info.key === "maintenance") {
-        return "下方為融資維持率走勢。維持率為估算值：各檔融資張數乘以收盤價的總市值，除以融資餘額。"
+        return "下方黑線為本站估算的民間版：各檔融資張數乘以收盤價的總市值，除以融資餘額，只看融資部位。"
+            + `綠線為臺股儀表板公布的官方全市場擔保維持率，以投資人整戶融資融券合併計算，通常比民間版高，且不分上市上櫃。${officialSince}`
+    }
+    if (info.kind === "ratio") {
+        return "下方為融資餘額占總市值的比重，比重越高代表市場使用融資槓桿越多。市值資料來自臺股儀表板，上櫃只有近兩個月。"
+    }
+    if (info.kind === "calls") {
+        return "下方柱狀圖為整戶擔保維持率低於 130% 的戶數 (全市場，不分上市上櫃)，低於 130% 就會被券商追繳。"
+            + `資料來自臺股儀表板，${officialSince}`
     }
     if (info.kind === "vix") {
         const first = props.market?.macro.TWVIX?.[0]?.[0]
@@ -95,6 +113,9 @@ const colorNote = computed(() => {
 function metricValue(row: ChipRow): number | null {
     if (metric.value === "vix") {
         return null
+    }
+    if (metric.value === "calls") {
+        return creditByDate.value.get(row.date)?.below_acc ?? null
     }
     const value = row[metric.value]
     return typeof value === "number" ? value : null
@@ -135,12 +156,14 @@ const chartOption = computed(() => {
     const indexLine = data.map((row) => closes.value.get(row.date) ?? "-")
     const values = data.map(metricValue)
     const isNet = info.kind === "net"
-    const isLine = info.key === "maintenance"
+    const isMaintenance = info.key === "maintenance"
+    const isLine = isMaintenance || info.kind === "ratio"
     const isVix = info.kind === "vix"
+    const isCalls = info.kind === "calls"
 
     /**
      * 圖上要標出的日子，與下方表格一致：融資餘額為相近日、維持率為最低的 5 天、
-     * VIX 為台美各自最高的 3 天。上方指數線一律標日期；維持率與 VIX 另外在下方的線上標數值。
+     * VIX 為台美各自最高的 3 天、追繳戶數暴增的日子。上方指數線一律標日期；維持率與 VIX 另外在下方的線上標數值。
      * 美股日期不一定是台股交易日，對到下一個台股交易日。
      */
     interface Mark {
@@ -153,7 +176,13 @@ const chartOption = computed(() => {
     let marks: Mark[] = []
     if (metric.value === "margin") {
         marks = (similar.value?.days ?? []).map((day) => ({ date: day.date, color: c.trust }))
-    } else if (isLine) {
+    } else if (isCalls) {
+        marks = callPeaks(credit.value).map((point) => ({
+            date: point.date,
+            color: c.trust,
+            lower: { value: point.value, text: fmt(point.value, 0), below: false },
+        }))
+    } else if (isMaintenance) {
         marks = maintenanceLows(rows.value).map((point) => ({
             date: point.date,
             color: c.trust,
@@ -232,16 +261,40 @@ const chartOption = computed(() => {
             vixLine("美國 VIX", usVix.value, c.foreign, panicLine(VIX_PANIC.US, c.foreign, "美國恐慌", "insideEndBottom")),
         ]
         : isLine
+        ? [
+            {
+                name: isMaintenance ? "民間版維持率" : info.label,
+                type: "line",
+                xAxisIndex: 1,
+                yAxisIndex: 1,
+                data: values.map((value) => value ?? "-"),
+                symbol: "none",
+                connectNulls: true,
+                lineStyle: { width: 1.8, color: c.text },
+                itemStyle: { color: c.text },
+            },
+            ...(isMaintenance
+                ? [{
+                    name: "官方全市場維持率",
+                    type: "line",
+                    xAxisIndex: 1,
+                    yAxisIndex: 1,
+                    data: data.map((row) => creditByDate.value.get(row.date)?.keep_rate ?? "-"),
+                    symbol: "none",
+                    connectNulls: true,
+                    lineStyle: { width: 1.8, color: c.dealer },
+                    itemStyle: { color: c.dealer },
+                }]
+                : []),
+        ]
+        : isCalls
         ? [{
-            name: info.label,
-            type: "line",
+            name: "追繳戶數",
+            type: "bar",
             xAxisIndex: 1,
             yAxisIndex: 1,
             data: values.map((value) => value ?? "-"),
-            symbol: "none",
-            connectNulls: true,
-            lineStyle: { width: 1.8, color: c.text },
-            itemStyle: { color: c.text },
+            itemStyle: { color: c.dealer, opacity: 0.75 },
         }]
         : [{
             name: info.label,
@@ -280,6 +333,9 @@ const chartOption = computed(() => {
                 const close = closes.value.get(row.date)
                 const vixText = (value: number | undefined, market: "TW" | "US") =>
                     value === undefined ? "--" : `${fmt(value, 2)}（${vixLevel(value, market).label}）`
+                const official = creditByDate.value.get(row.date)
+                const pct = (value: number | null | undefined, digits = 2) =>
+                    value === null || value === undefined ? "--" : `${fmt(value, digits)}%`
                 return [
                     `<strong>${formatDate(row.date)}</strong>`,
                     `${indexName.value}　${close === undefined ? "--" : fmt(close, 2)}`,
@@ -288,8 +344,10 @@ const chartOption = computed(() => {
                     `自營商　${colored(row.dealer, signedFmt(row.dealer))} 億`,
                     `合計　${colored(row.total, signedFmt(row.total))} 億`,
                     `融資餘額　${fmt(row.margin)} 億`,
-                    `融資維持率　${row.maintenance === null ? "--" : `${fmt(row.maintenance, 2)}%`}`,
+                    `融資維持率　${pct(row.maintenance)}（官方全市場 ${pct(official?.keep_rate)}）`,
                     `融券餘額　${fmt(row.short_units, 0)} 張`,
+                    `融資占市值　${pct(row.margin_ratio, 3)}　信用交易占成交　${pct(row.credit_ratio)}`,
+                    `追繳戶數　${official?.below_acc == null ? "--" : `${fmt(official.below_acc, 0)} 戶`}`,
                     `台指 VIX　${vixText(twVix.value.get(row.date), "TW")}`,
                     `美國 VIX　${vixText(usVix.value.get(row.date), "US")}`,
                 ].join("<br>")
@@ -306,6 +364,12 @@ const chartOption = computed(() => {
             {
                 text: isVix
                     ? "恐慌指標 VIX（橘：台指、藍：美國）"
+                    : isMaintenance
+                    ? `${MARKET_LABELS[marketKey.value]}融資維持率（黑：民間版、綠：官方全市場）`
+                    : isCalls
+                    ? "全市場追繳戶數（維持率低於 130%）"
+                    : info.kind === "ratio"
+                    ? `${MARKET_LABELS[marketKey.value]}融資餘額占市值（%）`
                     : `${MARKET_LABELS[marketKey.value]}${info.label}（${info.unit}）`,
                 left: 64,
                 top: 250,
@@ -387,7 +451,7 @@ const chartOption = computed(() => {
             },
             markerSeries(false),
             ...metricSeries,
-            ...(isLine || isVix ? [markerSeries(true)] : []),
+            ...(isMaintenance || isVix || isCalls ? [markerSeries(true)] : []),
         ],
     }
 })
@@ -509,6 +573,9 @@ const chartOption = computed(() => {
             :index-name="indexName"
             :tw-vix="twVix"
             :us-vix="usVix"
+            :credit="credit"
+            :credit-history="market?.credit_history"
+            :market-key="marketKey"
         />
     </section>
 </template>
@@ -518,7 +585,7 @@ const chartOption = computed(() => {
     margin-bottom: 8px;
 }
 
-/* 指標有七個，手機寬度下換行而不是把每個字擠成直排 */
+/* 指標有十個，手機寬度下換行而不是把每個字擠成直排 */
 .controls .tabs {
     flex-wrap: wrap;
 }

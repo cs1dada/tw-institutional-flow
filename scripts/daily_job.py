@@ -33,6 +33,7 @@ from app.services.etf_ingest import ingest_etf_holdings
 from app.services.etf_manual import import_manual
 from app.services import holders
 from app.services.index_ingest import ingest_index_months
+from app.services.credit_ingest import ingest_credit
 from app.services.market_ingest import ingest_macro, ingest_pending_chip, ingest_tpex_index
 from app.services.ingest import ingest_date, update_stock_info
 from app.services.valuation import ingest_eps_estimates
@@ -157,6 +158,11 @@ def update_market(conn, today):
         print(f"大盤籌碼抓取 {len(dates)} 個交易日")
     except Exception:
         logger.exception("大盤籌碼抓取失敗")
+    # 臺股儀表板的官方維持率、追繳處分與槓桿指標，各來源的失敗已在內部處理
+    counts = ingest_credit(conn)
+    print("信用交易指標：" + "、".join(
+        f"{k} {'失敗' if v is None else f'{v} 筆'}" for k, v in counts.items()
+    ))
 
 
 def update_holders(conn):
