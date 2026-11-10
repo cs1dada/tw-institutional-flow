@@ -136,6 +136,25 @@ export function maintenanceLevel(value: number): Level {
     return { label: "偏高", tone: "calm" }
 }
 
+/**
+ * 官方全市場擔保維持率的分區，取自玉山證券投顧整理的市場實務觀察 (非官方標準)。
+ * 原文沒有列 150% 到 160%，這裡當作恐慌與正常之間的過渡帶。
+ * 維持率太低是斷頭壓力，太高則是融資浮盈多、獲利了結的壓力，兩端都標成警示色。
+ */
+export const OFFICIAL_ZONES = [
+    { from: 0, to: 150, label: "恐慌", tone: "panic" },
+    { from: 150, to: 160, label: "偏低", tone: "alert" },
+    { from: 160, to: 180, label: "正常", tone: "normal" },
+    { from: 180, to: 190, label: "偏熱", tone: "alert" },
+    { from: 190, to: 200, label: "高熱", tone: "alert" },
+    { from: 200, to: Infinity, label: "極度樂觀", tone: "panic" },
+] as const
+
+export function officialLevel(value: number): Level {
+    const zone = OFFICIAL_ZONES.find((item) => value < item.to) ?? OFFICIAL_ZONES[OFFICIAL_ZONES.length - 1]
+    return { label: zone.label, tone: zone.tone }
+}
+
 export interface SimilarDay {
     date: string
     margin: number

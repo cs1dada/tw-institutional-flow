@@ -16,6 +16,7 @@ import {
     latestOf,
     latestPoint,
     maintenanceLevel,
+    officialLevel,
     vixLevel,
     type Latest,
     type Level,
@@ -223,6 +224,9 @@ function levelClass(level: Level | null): string {
                 </div>
                 <div v-if="official?.keep_rate != null" class="tile-foot">
                     官方全市場 <strong>{{ fmt(official.keep_rate) }}%</strong>
+                    <span :class="levelClass(officialLevel(official.keep_rate))">
+                        {{ officialLevel(official.keep_rate).label }}
+                    </span>
                     <span v-if="official.below_acc != null">追繳 {{ fmt(official.below_acc, 0) }} 戶</span>
                 </div>
                 <div v-if="chip.short" class="tile-foot">

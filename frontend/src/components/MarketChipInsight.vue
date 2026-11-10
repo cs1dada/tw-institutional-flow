@@ -16,6 +16,7 @@ import {
     forwardPct,
     maintenanceLevel,
     maintenanceLows,
+    officialLevel,
     streak,
     sumLast,
     vixHighs,
@@ -244,9 +245,12 @@ function maintenanceView(): View {
         {
             label: `官方全市場 ${officialLast ? formatDate(officialLast.date).slice(5) : ""}`,
             value: pct(officialLast?.keep_rate),
-            sub: last && typeof officialSameDay === "number"
-                ? `比民間版高 ${fmt(officialSameDay - last.value, 2)} 個百分點`
-                : "整戶融資融券合併計算",
+            sub: [
+                officialLast?.keep_rate != null ? officialLevel(officialLast.keep_rate).label : "",
+                last && typeof officialSameDay === "number"
+                    ? `比民間版高 ${fmt(officialSameDay - last.value, 2)} 個百分點`
+                    : "",
+            ].filter(Boolean).join("，"),
         },
         { label: "一年最高", value: `${fmt(high?.value, 2)}%`, sub: high ? formatDate(high.date) : "" },
         { label: "一年最低", value: `${fmt(lows[0]?.value, 2)}%`, sub: lows[0] ? formatDate(lows[0].date) : "" },
@@ -353,7 +357,7 @@ function callsView(): View {
         {
             label: `追繳戶數 ${last ? formatDate(last.date).slice(5) : ""}`,
             value: last?.below_acc == null ? "--" : `${fmt(last.below_acc, 0)} 戶`,
-            sub: `官方維持率 ${pct(last?.keep_rate)}`,
+            sub: `官方維持率 ${pct(last?.keep_rate)}${last?.keep_rate != null ? ` ${officialLevel(last.keep_rate).label}` : ""}`,
         },
         { label: "當日追繳金額", value: `${fmt(last?.call_amt, 2)} 億` },
         {
@@ -567,7 +571,7 @@ function toneClass(tone: Tone | undefined): string {
 
 .stats {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
     gap: 8px;
     margin-bottom: 12px;
 }
