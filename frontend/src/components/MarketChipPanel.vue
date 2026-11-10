@@ -114,11 +114,11 @@ const colorNote = computed(() => {
     const info = metricInfo.value
     const officialSince = credit.value.length ? `官方資料從 ${formatDate(credit.value[0].date)} 起。` : ""
     if (info.key === "maintenance") {
-        return "下方黑線為本站估算的民間版：各檔融資張數乘以收盤價的總市值，除以融資餘額，只看融資部位。"
-            + `綠線為臺股儀表板公布的官方全市場擔保維持率，以投資人整戶融資融券合併計算，通常比民間版高，且不分上市上櫃。${officialSince}`
-            + "背景色帶是玉山證券投顧對官方維持率的分區，只適用於綠線，配色參考 TradingView 技術分析的總結儀表："
+        return "下方灰線為本站估算的民間版：各檔融資張數乘以收盤價的總市值，除以融資餘額，只看融資部位。"
+            + `彩色線為臺股儀表板公布的官方全市場擔保維持率，以投資人整戶融資融券合併計算，通常比民間版高，且不分上市上櫃。${officialSince}`
+            + "彩色線依玉山證券投顧對官方維持率的分區上色，虛線為各分區的門檻，配色參考 TradingView 技術分析的總結儀表："
             + "150% 以下恐慌 (深紅)、150% 到 160% 偏低 (紅)、160% 到 180% 正常 (灰)、"
-            + "180% 到 200% 偏熱與高熱 (藍，由淡到濃)、200% 以上極度樂觀 (深藍)。"
+            + "180% 到 200% 偏熱與高熱 (藍)、200% 以上極度樂觀 (深藍)。"
     }
     if (info.kind === "ratio") {
         return "下方為融資餘額占總市值的比重，比重越高代表市場使用融資槓桿越多。市值資料來自臺股儀表板，上櫃只有近兩個月。"
@@ -132,9 +132,9 @@ const colorNote = computed(() => {
         const since = first
             ? `期交所只保留約三個月的檔案，台指 VIX 從 ${formatDate(first)} 起，之後每天累積。`
             : ""
-        return "下方黑線為台指 VIX，灰線為美國 VIX。背景色帶依台指 VIX 的門檻，配色參考 TradingView 技術分析的總結儀表："
+        return "下方彩色線為台指 VIX，依所在分區分段上色，淡灰線為美國 VIX。配色參考 TradingView 技術分析的總結儀表："
             + `18 以下平靜 (藍)、18 到 25 正常 (灰)、25 以上警戒 (紅)、${VIX_PANIC.TW} 以上恐慌 (深紅)；`
-            + `美國 VIX 門檻較低，恐慌門檻 ${VIX_PANIC.US} 另以灰色虛線標示。${since}`
+            + `虛線為台指的門檻；美國 VIX 門檻較低 (恐慌 ${VIX_PANIC.US})，只畫線供對照。${since}`
     }
     if (info.kind === "net") {
         return "下方柱狀圖：紅色為買超，綠色為賣超。"
@@ -256,7 +256,7 @@ const chartOption = computed(() => {
                     color: mark.color,
                     fontSize: 11,
                     fontWeight: 600,
-                    // 下方的數值可能落在深色色帶上，加淺色底才讀得到
+                    // 下方的數值可能和線條、門檻虛線交疊，加淺色底才讀得到
                     ...(lower ? { backgroundColor: `${c.surface}e6`, padding: [1, 3], borderRadius: 3 } : {}),
                     formatter: lower ? mark.lower!.text : labels[index],
                 },
@@ -268,82 +268,43 @@ const chartOption = computed(() => {
         z: 5,
     })
 
-    /** 分區色帶，維持率與 VIX 共用。上下界寫到夠遠，實際只畫出縱軸範圍內的部分 */
+    /**
+     * 分區的呈現方式：背景維持乾淨，和上方指數圖同樣是白底加線條；
+     * 主線依所在分區分段上色 (見 option 的 visualMap)，門檻只畫淡色虛線並標上分區名稱。
+     * 維持率與 VIX 共用
+     */
     type Zone = { from: number; to: number; label: string; tone: string }
     const zoneColors: Record<string, string> = {
         "strong-sell": c.zoneStrongSell,
         sell: c.zoneSell,
-        neutral: c.zoneNeutral,
+        // 中立的淺灰畫成線太淡，也會和民間版的灰線混在一起，線條改用主要文字色
+        neutral: c.text,
         buy: c.zoneBuy,
         "strong-buy": c.zoneStrongBuy,
     }
-    /**
-     * 把半透明色先和圖表底色混成不透明色。分區色帶彼此會重疊一點以蓋住接縫，
-     * 若用半透明色，重疊處會疊出一條條較深的細線
-     */
-    const opaque = (hex: string, alpha: number) => {
-        const rgb = (value: string) => [1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16))
-        const fg = rgb(hex)
-        const bg = rgb(c.surface0)
-        return `rgb(${fg.map((v, i) => Math.round(v * alpha + bg[i] * (1 - alpha))).join(",")})`
-    }
-
-    /**
-     * blend 為每條分區界線上下各留多少做漸層過渡 (縱軸單位)，相鄰兩色自然銜接，不會一刀切。
-     * 分區本身只畫中間的實色段，界線附近另畫一段由下方顏色漸變到上方顏色的色帶
-     */
-    const zoneArea = (zones: readonly Zone[], floor: number, ceiling: number, blend: number) => {
-        // 同色相鄰的分區 (偏熱、高熱) 以濃淡區分，較高的一區較濃；中立的灰色淡一點，不搶線條。
-        // 兩端的深紅、深藍半透明時會偏灰，接近不透明才看得出深色
-        const fill = zones.map((zone, index) => {
-            const sameAsPrev = index > 0 && zones[index - 1].tone === zone.tone
-            const alpha = zone.tone === "neutral"
-                ? "4d"
-                : zone.tone.startsWith("strong")
-                ? "c8"
-                : sameAsPrev ? "99" : "70"
-            return opaque(zoneColors[zone.tone], parseInt(alpha, 16) / 255)
-        })
-        const solid = zones.map((zone, index) => [
-            {
-                name: zone.label,
-                yAxis: Math.max(index ? zone.from + blend : zone.from, floor),
-                itemStyle: { color: fill[index] },
-                // 深紅、深藍底上的黑字不好讀，改用白字
-                ...(zone.tone.startsWith("strong") ? { label: { color: "#fff" } } : {}),
+    /** visualMap 的分段，線落在哪一區就用那一區的顏色 */
+    const zonePieces = (zones: readonly Zone[]) =>
+        zones.map((zone) => ({
+            gte: zone.from,
+            ...(Number.isFinite(zone.to) ? { lt: zone.to } : {}),
+            color: zoneColors[zone.tone],
+        }))
+    /** 各分區下緣的門檻虛線，分區名稱放在圖的右側外面，不會壓到線條與最新資料 */
+    const zoneLines = (zones: readonly Zone[]) => ({
+        silent: true,
+        symbol: "none",
+        data: zones.slice(1).map((zone) => ({
+            yAxis: zone.from,
+            lineStyle: { type: "dashed", width: 1, color: `${zoneColors[zone.tone]}80` },
+            label: {
+                formatter: zone.label,
+                position: "end",
+                distance: 4,
+                color: zoneColors[zone.tone],
+                fontSize: 11,
             },
-            { yAxis: Math.min(index < zones.length - 1 ? zone.to - blend : zone.to, ceiling) },
-        ])
-        // 漸層段上下各多蓋一點，蓋住和實色段接縫處的抗鋸齒細縫
-        const overlap = blend * 0.15
-        const edges = zones.slice(0, -1).map((zone, index) => [
-            {
-                yAxis: zone.to - blend - overlap,
-                label: { show: false },
-                itemStyle: {
-                    // 漸層方向由上到下：上方接較高的分區，下方接較低的分區
-                    color: {
-                        type: "linear",
-                        x: 0,
-                        y: 0,
-                        x2: 0,
-                        y2: 1,
-                        colorStops: [
-                            { offset: 0, color: fill[index + 1] },
-                            { offset: 1, color: fill[index] },
-                        ],
-                    },
-                },
-            },
-            { yAxis: zone.to + blend + overlap },
-        ])
-        return {
-            silent: true,
-            // 分區名稱放左側，右側是最新資料與標記，放右邊會疊在一起
-            label: { color: c.text, fontSize: 11, fontWeight: 600, position: "insideLeft" },
-            data: [...solid, ...edges],
-        }
-    }
+        })),
+    })
     const vixLine = (name: string, source: Map<string, number>, color: string, extra: object) => ({
         name,
         type: "line",
@@ -359,18 +320,9 @@ const chartOption = computed(() => {
 
     const metricSeries = isVix
         ? [
-            // 色帶依台指的門檻；美國門檻較低，只畫恐慌虛線
-            vixLine("台指 VIX", twVix.value, c.text, { markArea: zoneArea(VIX_ZONES.TW, 0, 100, 1.5) }),
-            vixLine("美國 VIX", usVix.value, c.secondary, {
-                markLine: {
-                    silent: true,
-                    symbol: "none",
-                    lineStyle: { type: "dashed", color: c.secondary, width: 1 },
-                    // 圖上空間有限，標籤會壓到分區名稱或標記，門檻數值寫在下方說明
-                    label: { show: false },
-                    data: [{ yAxis: VIX_PANIC.US }],
-                },
-            }),
+            // 台指 VIX 依分區分段上色並畫門檻線；美國 VIX 門檻較低，畫成灰色細線只供對照
+            vixLine("台指 VIX", twVix.value, c.text, { markLine: zoneLines(VIX_ZONES.TW), lineStyle: { width: 2.2 } }),
+            vixLine("美國 VIX", usVix.value, `${c.secondary}99`, { lineStyle: { width: 1.2, color: `${c.secondary}99` } }),
         ]
         : isLine
         ? [
@@ -382,8 +334,9 @@ const chartOption = computed(() => {
                 data: values.map((value) => value ?? "-"),
                 symbol: "none",
                 connectNulls: true,
-                lineStyle: { width: 1.8, color: c.text },
-                itemStyle: { color: c.text },
+                // 維持率頁籤的主角是分段上色的官方線，民間版改為深灰細線對照
+                lineStyle: { width: isMaintenance ? 1.4 : 1.8, color: isMaintenance ? c.secondary : c.text },
+                itemStyle: { color: isMaintenance ? c.secondary : c.text },
             },
             ...(isMaintenance
                 ? [{
@@ -394,10 +347,9 @@ const chartOption = computed(() => {
                     data: data.map((row) => creditByDate.value.get(row.date)?.keep_rate ?? "-"),
                     symbol: "none",
                     connectNulls: true,
-                    lineStyle: { width: 1.8, color: c.dealer },
-                    itemStyle: { color: c.dealer },
-                    // 官方維持率的分區色帶
-                    markArea: zoneArea(OFFICIAL_ZONES, 60, 300, 3),
+                    // 依分區分段上色 (visualMap)，門檻畫淡色虛線
+                    lineStyle: { width: 2.2 },
+                    markLine: zoneLines(OFFICIAL_ZONES),
                 }]
                 : []),
         ]
@@ -432,8 +384,25 @@ const chartOption = computed(() => {
             }),
         }]
 
+    /**
+     * 依分區分段上色的主線 (台指 VIX、官方維持率)。series 依序為指數線、各均線、
+     * 指數上的標記，接著才是 metricSeries，因此索引要加上前面的數量
+     */
+    const zonedIndex = metricSeries.findIndex((item) => item.name === "台指 VIX" || item.name === "官方全市場維持率")
+    // 有分區門檻時右側多留空間放分區名稱，上下兩張圖一起調整，x 軸才會對齊
+    const gridRight = zonedIndex < 0 ? 20 : 58
+    const visualMap = zonedIndex < 0
+        ? []
+        : [{
+            show: false,
+            type: "piecewise",
+            seriesIndex: 1 + MA_SIZES.length + 1 + zonedIndex,
+            pieces: zonePieces(isVix ? VIX_ZONES.TW : OFFICIAL_ZONES),
+        }]
+
     return {
         animation: false,
+        visualMap,
         axisPointer: { link: [{ xAxisIndex: "all" }] },
         tooltip: {
             ...baseTooltip(),
@@ -473,7 +442,7 @@ const chartOption = computed(() => {
         legend: {
             data: MA_SIZES.map((size) => `MA${size}`),
             top: 0,
-            right: 20,
+            right: gridRight,
             icon: "roundRect",
             itemWidth: 10,
             itemHeight: 10,
@@ -489,9 +458,9 @@ const chartOption = computed(() => {
             },
             {
                 text: isVix
-                    ? "恐慌指標 VIX（黑：台指、灰：美國）"
+                    ? "恐慌指標 VIX（彩色：台指依分區上色、淡灰：美國）"
                     : isMaintenance
-                    ? `${MARKET_LABELS[marketKey.value]}融資維持率（黑：民間版、綠：官方全市場）`
+                    ? `${MARKET_LABELS[marketKey.value]}融資維持率（彩色：官方全市場依分區上色、灰：民間版）`
                     : isCalls
                     ? "全市場追繳戶數（維持率低於 130%）"
                     : info.kind === "ratio"
@@ -504,10 +473,10 @@ const chartOption = computed(() => {
         ],
         grid: [
             // 上方留白給標題與相近日的標記，否則最高點附近的標記會被裁掉
-            { left: 64, right: 20, top: 40, height: 196 },
+            { left: 64, right: gridRight, top: 40, height: 196 },
             {
                 left: 64,
-                right: 20,
+                right: gridRight,
                 top: 274,
                 height: 150,
                 show: true,
@@ -544,7 +513,7 @@ const chartOption = computed(() => {
                 gridIndex: 1,
                 scale: !isNet,
                 splitNumber: 3,
-                // 色帶的上下界寫得很遠，縱軸只依線的資料決定範圍，不被色帶撐開
+                // 縱軸只依線的資料決定範圍，對齊整數刻度
                 ...(isVix
                     ? {
                         min: (range: { min: number }) => Math.max(0, Math.floor((range.min - 2) / 5) * 5),
@@ -562,7 +531,7 @@ const chartOption = computed(() => {
                 axisLine: { show: false },
                 axisTick: { show: false },
                 axisLabel: { color: c.muted, fontSize: 11 },
-                // 有分區色帶時不畫格線，色帶本身就是刻度參考，多畫只會多出雜線
+                // 有分區門檻虛線時不畫格線，避免兩種虛線混在一起
                 splitLine: { show: !(isMaintenance || isVix), lineStyle: { color: c.border, type: "dashed" } },
             },
         ],

@@ -21,6 +21,7 @@ import {
     MarkLineComponent,
     TitleComponent,
     TooltipComponent,
+    VisualMapPiecewiseComponent,
 } from "echarts/components"
 import { use } from "echarts/core"
 import { CanvasRenderer } from "echarts/renderers"
@@ -44,4 +45,6 @@ use([
     MarkLineComponent,
     // 多格圖表各自的標題 (大盤籌碼圖)
     TitleComponent,
+    // 依數值分段上色的線 (維持率與 VIX 的分區)
+    VisualMapPiecewiseComponent,
 ])
