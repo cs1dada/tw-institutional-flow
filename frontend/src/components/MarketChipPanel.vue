@@ -277,31 +277,73 @@ const chartOption = computed(() => {
         buy: c.zoneBuy,
         "strong-buy": c.zoneStrongBuy,
     }
-    const zoneArea = (zones: readonly Zone[], floor: number, ceiling: number) => ({
-        silent: true,
-        // 分區名稱放左側，右側是最新資料與標記，放右邊會疊在一起
-        label: { color: c.text, fontSize: 11, fontWeight: 600, position: "insideLeft" },
-        data: zones.map((zone, index) => {
-            // 同色相鄰的分區 (偏熱、高熱) 以濃淡區分，較高的一區較濃；中立的灰色淡一點，不搶線條。
-            // 兩端的深紅、深藍半透明時會偏灰，接近不透明才看得出深色
+    /**
+     * 把半透明色先和圖表底色混成不透明色。分區色帶彼此會重疊一點以蓋住接縫，
+     * 若用半透明色，重疊處會疊出一條條較深的細線
+     */
+    const opaque = (hex: string, alpha: number) => {
+        const rgb = (value: string) => [1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16))
+        const fg = rgb(hex)
+        const bg = rgb(c.surface0)
+        return `rgb(${fg.map((v, i) => Math.round(v * alpha + bg[i] * (1 - alpha))).join(",")})`
+    }
+
+    /**
+     * blend 為每條分區界線上下各留多少做漸層過渡 (縱軸單位)，相鄰兩色自然銜接，不會一刀切。
+     * 分區本身只畫中間的實色段，界線附近另畫一段由下方顏色漸變到上方顏色的色帶
+     */
+    const zoneArea = (zones: readonly Zone[], floor: number, ceiling: number, blend: number) => {
+        // 同色相鄰的分區 (偏熱、高熱) 以濃淡區分，較高的一區較濃；中立的灰色淡一點，不搶線條。
+        // 兩端的深紅、深藍半透明時會偏灰，接近不透明才看得出深色
+        const fill = zones.map((zone, index) => {
             const sameAsPrev = index > 0 && zones[index - 1].tone === zone.tone
             const alpha = zone.tone === "neutral"
                 ? "4d"
                 : zone.tone.startsWith("strong")
                 ? "c8"
                 : sameAsPrev ? "99" : "70"
-            return [
-                {
-                    name: zone.label,
-                    yAxis: Math.max(zone.from, floor),
-                    itemStyle: { color: `${zoneColors[zone.tone]}${alpha}` },
-                    // 深紅、深藍底上的黑字不好讀，改用白字
-                    ...(zone.tone.startsWith("strong") ? { label: { color: "#fff" } } : {}),
+            return opaque(zoneColors[zone.tone], parseInt(alpha, 16) / 255)
+        })
+        const solid = zones.map((zone, index) => [
+            {
+                name: zone.label,
+                yAxis: Math.max(index ? zone.from + blend : zone.from, floor),
+                itemStyle: { color: fill[index] },
+                // 深紅、深藍底上的黑字不好讀，改用白字
+                ...(zone.tone.startsWith("strong") ? { label: { color: "#fff" } } : {}),
+            },
+            { yAxis: Math.min(index < zones.length - 1 ? zone.to - blend : zone.to, ceiling) },
+        ])
+        // 漸層段上下各多蓋一點，蓋住和實色段接縫處的抗鋸齒細縫
+        const overlap = blend * 0.15
+        const edges = zones.slice(0, -1).map((zone, index) => [
+            {
+                yAxis: zone.to - blend - overlap,
+                label: { show: false },
+                itemStyle: {
+                    // 漸層方向由上到下：上方接較高的分區，下方接較低的分區
+                    color: {
+                        type: "linear",
+                        x: 0,
+                        y: 0,
+                        x2: 0,
+                        y2: 1,
+                        colorStops: [
+                            { offset: 0, color: fill[index + 1] },
+                            { offset: 1, color: fill[index] },
+                        ],
+                    },
                 },
-                { yAxis: Math.min(zone.to, ceiling) },
-            ]
-        }),
-    })
+            },
+            { yAxis: zone.to + blend + overlap },
+        ])
+        return {
+            silent: true,
+            // 分區名稱放左側，右側是最新資料與標記，放右邊會疊在一起
+            label: { color: c.text, fontSize: 11, fontWeight: 600, position: "insideLeft" },
+            data: [...solid, ...edges],
+        }
+    }
     const vixLine = (name: string, source: Map<string, number>, color: string, extra: object) => ({
         name,
         type: "line",
@@ -318,7 +360,7 @@ const chartOption = computed(() => {
     const metricSeries = isVix
         ? [
             // 色帶依台指的門檻；美國門檻較低，只畫恐慌虛線
-            vixLine("台指 VIX", twVix.value, c.text, { markArea: zoneArea(VIX_ZONES.TW, 0, 100) }),
+            vixLine("台指 VIX", twVix.value, c.text, { markArea: zoneArea(VIX_ZONES.TW, 0, 100, 1.5) }),
             vixLine("美國 VIX", usVix.value, c.secondary, {
                 markLine: {
                     silent: true,
@@ -355,7 +397,7 @@ const chartOption = computed(() => {
                     lineStyle: { width: 1.8, color: c.dealer },
                     itemStyle: { color: c.dealer },
                     // 官方維持率的分區色帶
-                    markArea: zoneArea(OFFICIAL_ZONES, 60, 300),
+                    markArea: zoneArea(OFFICIAL_ZONES, 60, 300, 3),
                 }]
                 : []),
         ]
@@ -520,7 +562,8 @@ const chartOption = computed(() => {
                 axisLine: { show: false },
                 axisTick: { show: false },
                 axisLabel: { color: c.muted, fontSize: 11 },
-                splitLine: { lineStyle: { color: c.border, type: "dashed" } },
+                // 有分區色帶時不畫格線，色帶本身就是刻度參考，多畫只會多出雜線
+                splitLine: { show: !(isMaintenance || isVix), lineStyle: { color: c.border, type: "dashed" } },
             },
         ],
         series: [
