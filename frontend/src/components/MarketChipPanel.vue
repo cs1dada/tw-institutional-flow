@@ -61,6 +61,31 @@ const closes = computed(() => {
     return new Map(source.map((row) => [row.date, row.close]))
 })
 
+/** 指數均線，與 K 線圖的日線相同 */
+const MA_SIZES = [5, 20, 60] as const
+
+/**
+ * 各均線以日期查詢。用指數的完整日線計算 (closes 依日期由舊到新)，
+ * 不是只算畫面上的區間，否則區間開頭的 60 日線會空一段
+ */
+const maByDate = computed(() => {
+    const entries = [...closes.value]
+    return MA_SIZES.map((size) => {
+        const result = new Map<string, number>()
+        let sum = 0
+        entries.forEach(([date, close], index) => {
+            sum += close
+            if (index >= size) {
+                sum -= entries[index - size][1]
+            }
+            if (index >= size - 1) {
+                result.set(date, +(sum / size).toFixed(2))
+            }
+        })
+        return result
+    })
+})
+
 const visible = computed(() => rows.value.slice(-span.value))
 
 /** 台指與美國 VIX，以日期查詢；美股休市的日子對不到就留空 */
@@ -339,6 +364,7 @@ const chartOption = computed(() => {
                 return [
                     `<strong>${formatDate(row.date)}</strong>`,
                     `${indexName.value}　${close === undefined ? "--" : fmt(close, 2)}`,
+                    MA_SIZES.map((size, index) => `MA${size} ${fmt(maByDate.value[index].get(row.date), 0)}`).join("　"),
                     `外資　${colored(row.foreign, signedFmt(row.foreign))} 億`,
                     `投信　${colored(row.trust, signedFmt(row.trust))} 億`,
                     `自營商　${colored(row.dealer, signedFmt(row.dealer))} 億`,
@@ -354,6 +380,17 @@ const chartOption = computed(() => {
             },
         },
         // 上下兩張圖各自加粗標題，下方再鋪淺底色，一眼分出指數與籌碼
+        // 均線圖例放在指數圖右上角，和左邊的指數標題同一列
+        legend: {
+            data: MA_SIZES.map((size) => `MA${size}`),
+            top: 0,
+            right: 20,
+            icon: "roundRect",
+            itemWidth: 10,
+            itemHeight: 10,
+            itemGap: 14,
+            textStyle: { color: c.secondary, fontSize: 12 },
+        },
         title: [
             {
                 text: indexName.value,
@@ -449,6 +486,22 @@ const chartOption = computed(() => {
                     },
                 },
             },
+            // 均線避開指數線的藍色與標記的橘色：MA5 紅、MA20 綠、MA60 灰色虛線
+            ...MA_SIZES.map((size, index) => ({
+                name: `MA${size}`,
+                type: "line",
+                data: data.map((row) => maByDate.value[index].get(row.date) ?? "-"),
+                symbol: "none",
+                smooth: true,
+                connectNulls: true,
+                lineStyle: {
+                    width: 1.2,
+                    color: [c.buy, c.dealer, c.secondary][index],
+                    type: index === 2 ? "dashed" : "solid",
+                },
+                itemStyle: { color: [c.buy, c.dealer, c.secondary][index] },
+                z: 3,
+            })),
             markerSeries(false),
             ...metricSeries,
             ...(isMaintenance || isVix || isCalls ? [markerSeries(true)] : []),
