@@ -190,6 +190,25 @@
 
 ---
 
+## holder_dist — 集保股權分散表
+
+臺灣集中保管結算所每週公布的持股級距，資料日為每週最後一個營業日。
+開放資料只提供最新一週，過去的週次查不回來，必須每週匯入才能累積。
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| `date` | TEXT | 資料日，與 `code`、`level` 合為主鍵 |
+| `code` | TEXT | 證券代號 (含 ETF、特別股等，頁面只取 `stock_info.is_etf = 0` 的個股) |
+| `level` | INTEGER | 持股級距：1~15 由 1-999 股到 1,000,001 股以上，16 為差異數調整，17 為合計 |
+| `people` | INTEGER | 該級距的人數 (依身分歸戶，法人帳戶各算一人) |
+| `shares` | INTEGER | 該級距的股數 |
+| `pct` | REAL | 佔集保庫存數的比例 (%) |
+
+集保網站的歷史查詢頁在沒有差異數調整時，合計列的序號是 16 而不是 17；
+匯入前一律把合計放到第 17 級，第 16 級只代表差異數調整。
+
+---
+
 ## future_daily — 期貨每日行情
 
 期貨的開高低收，供期貨 K 線圖使用。個股在 `daily_price`，期貨在這裡，兩者分開。
@@ -306,8 +325,14 @@ FROM daily_price WHERE open IS NOT NULL;
 | `etf_cost.json` | 經理人成本表 | `etf_holding`、`daily_price`、`stock_info` | `etf_cost.compute` |
 | `etf_cost/{代號}.json` | 點選個股後的成本疊圖 | 同上 | `etf_cost.compute` |
 | `index.json` | 大盤指數 K 線頁 | `index_daily` | `dataset.build_index` |
+| `holders.json` | 籌碼分布頁的週次選單 | `holder_dist` | `holders.build_index` |
+| `holders/{日期}.json` | 籌碼分布頁的週變化排行 | `holder_dist`、`stock_info`、`daily_price` | `holders.build_week` |
+| `holders/stock/{代號}.json` | 點選個股後的逐週走勢與級距 | `holder_dist`、`stock_info`、`daily_price` | `holders.build_stock` |
 
-`dataset` 指 `app/services/dataset.py`，`etf_cost` 指 `app/services/etf_cost.py`。
+`dataset` 指 `app/services/dataset.py`，`etf_cost` 指 `app/services/etf_cost.py`，`holders` 指 `app/services/holders.py`。
+
+`holders` 開頭的檔案匯出時以既有檔案為底合併：資料庫已經沒有的週檔不刪除，
+個股走勢以 `holders.merge_stock` 保留舊週次，週檔在資料庫缺前一週而可比較的檔數變少時沿用舊檔。
 
 ### 資料表之間的關係
 
