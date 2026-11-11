@@ -14,6 +14,8 @@
    籌碼的歷史每次只補一部分，失敗時只記錄、不中斷排程
 9. 集保股權分散表 (每週一份，開放資料只有最新一週)，並匯入 data/holders_manual/ 的補查資料。
    每天都檢查，已匯入的週次會略過；失敗時只記錄、不中斷排程
+10. 期交所盤後資料：期貨每日行情 (含全市場未沖銷契約數) 與三大法人期貨未平倉。
+    資料表是空的會自動回補一年；失敗時只記錄、不中斷排程
 
 用法：
     python scripts/daily_job.py
@@ -35,6 +37,7 @@ from app.services import holders
 from app.services.index_ingest import ingest_index_months
 from app.services.credit_ingest import ingest_credit
 from app.services.market_ingest import ingest_macro, ingest_pending_chip, ingest_tpex_index
+from app.services.futures_ingest import ingest_future_daily, ingest_future_inst
 from app.services.ingest import ingest_date, update_stock_info
 from app.services.valuation import ingest_eps_estimates
 
@@ -165,6 +168,16 @@ def update_market(conn, today):
     ))
 
 
+def update_futures(conn):
+    """期交所盤後資料，兩項各自獨立，任一項失敗都不影響另一項。"""
+    for label, ingest in (("期貨每日行情", ingest_future_daily), ("法人期貨未平倉", ingest_future_inst)):
+        try:
+            counts = ingest(conn)
+            print(f"{label}：" + "、".join(f"{k} {v} 個交易日" for k, v in counts.items()))
+        except Exception:
+            logger.exception("%s抓取失敗", label)
+
+
 def update_holders(conn):
     """集保股權分散：沒抓到的週次之後無法回補，但不影響其他資料，失敗時只記錄。"""
     try:
@@ -215,6 +228,7 @@ def main():
         purge_untracked_etfs(conn)
         update_eps_estimates(conn)
         update_market(conn, today)
+        update_futures(conn)
         update_holders(conn)
     finally:
         conn.close()

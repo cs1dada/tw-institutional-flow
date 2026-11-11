@@ -23,22 +23,11 @@ _bootstrap.setup_logging()
 from app import config
 from app.db import connect, init_schema
 from app.fetchers import taifex
+from app.services.futures_ingest import DAILY_UPSERT_SQL
 
 DEFAULT_COMMODITIES = ["TMF"]
 
-UPSERT = """
-INSERT INTO future_daily (
-    date, commodity, contract_month, session,
-    open, high, low, close, settlement, volume, open_interest
-) VALUES (
-    :date, :commodity, :contract_month, :session,
-    :open, :high, :low, :close, :settlement, :volume, :open_interest
-)
-ON CONFLICT(date, commodity, contract_month, session) DO UPDATE SET
-    open = excluded.open, high = excluded.high, low = excluded.low,
-    close = excluded.close, settlement = excluded.settlement,
-    volume = excluded.volume, open_interest = excluded.open_interest
-"""
+UPSERT = DAILY_UPSERT_SQL
 
 
 def parse_args():

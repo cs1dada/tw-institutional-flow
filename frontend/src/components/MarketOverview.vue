@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 大盤指標卡：加權與櫃買指數、三大法人、融資融券與維持率、匯率與 VIX。
+ * 大盤指標卡：加權與櫃買指數、三大法人、融資融券與維持率、臺股期貨未平倉、匯率與 VIX。
  *
  * 各指標的公布時間不同 (法人 15:00、融資晚間、美股隔天清晨)，
  * 因此每張卡各自標示資料日期，不假設它們是同一天。
@@ -13,6 +13,7 @@ import {
     MARKET_LABELS,
     expandChip,
     expandCredit,
+    expandFutures,
     latestOf,
     latestPoint,
     maintenanceLevel,
@@ -118,6 +119,30 @@ const macro = computed(() => {
         usVix,
         usVixLevel: usVix ? vixLevel(usVix.value, "US") : null,
     }
+})
+
+/**
+ * 臺股期貨未平倉：三大法人淨額與全市場口數，各自取最近一筆有值的資料。
+ * 全市場口數來自每日行情，比法人晚公布，日期可能差一天
+ */
+const futures = computed(() => {
+    const rows = props.market ? expandFutures(props.market) : []
+    const pick = (key: "foreign" | "trust" | "dealer" | "market_oi"): Latest | null => {
+        const points = rows.filter((row) => row[key] !== null)
+        const last = points[points.length - 1]
+        if (!last) {
+            return null
+        }
+        const prev = points[points.length - 2]
+        return { date: last.date, value: last[key]!, diff: prev ? last[key]! - prev[key]! : null }
+    }
+    const items = [
+        { label: "外資", item: pick("foreign") },
+        { label: "投信", item: pick("trust") },
+        { label: "自營商", item: pick("dealer") },
+        { label: "全市場", item: pick("market_oi") },
+    ]
+    return items[0].item ? items : null
 })
 
 function shortDate(date: string | undefined): string {
@@ -239,16 +264,24 @@ function levelClass(level: Level | null): string {
 
         <div class="tile">
             <div class="tile-head">
-                <span class="tile-title">美元／台幣</span>
-                <span class="tile-date">{{ shortDate(macro.usdtwd?.date) }}</span>
+                <span class="tile-title">臺股期貨未平倉（口）</span>
+                <span class="tile-date">{{ shortDate(futures?.[0].item?.date) }}</span>
             </div>
-            <template v-if="macro.usdtwd">
-                <div class="tile-value">{{ fmt(macro.usdtwd.value, 3) }}</div>
-                <!-- 匯價上升代表台幣貶值，顏色一律依數值方向：上升紅、下降綠 -->
-                <div class="tile-sub" :class="tone(macro.usdtwd.diff)">
-                    {{ arrow(macro.usdtwd.diff) }} {{ signedFmt(macro.usdtwd.diff, 3) }}
-                    {{ (macro.usdtwd.diff ?? 0) > 0 ? "台幣貶值" : (macro.usdtwd.diff ?? 0) < 0 ? "台幣升值" : "" }}
+            <template v-if="futures">
+                <div v-for="row in futures" :key="row.label" class="futures-row">
+                    <span class="futures-name">
+                        {{ row.label }}<em v-if="row.item && row.item.date !== futures[0].item?.date">{{ shortDate(row.item.date) }}</em>
+                    </span>
+                    <template v-if="row.item">
+                        <!-- 全市場口數沒有方向，不上色 -->
+                        <strong :class="row.label === '全市場' ? '' : tone(row.item.value)">
+                            {{ row.label === "全市場" ? fmt(row.item.value, 0) : signedFmt(row.item.value, 0) }}
+                        </strong>
+                        <span class="futures-diff" :class="tone(row.item.diff)">{{ signedFmt(row.item.diff, 0) }}</span>
+                    </template>
+                    <span v-else class="tile-empty">--</span>
                 </div>
+                <div class="tile-foot">右側為較前一日增減</div>
             </template>
             <div v-else class="tile-empty">尚無資料</div>
         </div>
@@ -283,10 +316,19 @@ function levelClass(level: Level | null): string {
 
         <div class="tile">
             <div class="tile-head">
-                <span class="tile-title">恐慌指標 VIX</span>
+                <span class="tile-title">匯率與恐慌指標</span>
             </div>
             <div class="vix-row">
-                <span class="vix-name">台指<em>{{ shortDate(macro.twVix?.date) }}</em></span>
+                <span class="vix-name">美元匯率</span>
+                <template v-if="macro.usdtwd">
+                    <strong class="vix-value">{{ fmt(macro.usdtwd.value, 3) }}</strong>
+                    <!-- 匯價上升代表台幣貶值，顏色一律依數值方向：上升紅、下降綠 -->
+                    <span class="vix-diff" :class="tone(macro.usdtwd.diff)">{{ signedFmt(macro.usdtwd.diff, 3) }}</span>
+                </template>
+                <span v-else class="tile-empty">尚無資料</span>
+            </div>
+            <div class="vix-row">
+                <span class="vix-name">台指</span>
                 <template v-if="macro.twVix">
                     <strong class="vix-value">{{ fmt(macro.twVix.value) }}</strong>
                     <span class="vix-diff" :class="tone(macro.twVix.diff)">{{ signedFmt(macro.twVix.diff) }}</span>
@@ -295,7 +337,7 @@ function levelClass(level: Level | null): string {
                 <span v-else class="tile-empty">尚無資料</span>
             </div>
             <div class="vix-row">
-                <span class="vix-name">美國<em>{{ shortDate(macro.usVix?.date) }}</em></span>
+                <span class="vix-name">美國</span>
                 <template v-if="macro.usVix">
                     <strong class="vix-value">{{ fmt(macro.usVix.value) }}</strong>
                     <span class="vix-diff" :class="tone(macro.usVix.diff)">{{ signedFmt(macro.usVix.diff) }}</span>
@@ -303,14 +345,14 @@ function levelClass(level: Level | null): string {
                 </template>
                 <span v-else class="tile-empty">尚無資料</span>
             </div>
-            <div class="tile-foot">美國 VIX 為前一晚美股收盤</div>
         </div>
     </section>
 </template>
 
 <style scoped>
 /*
- * 卡片剛好排成兩列五欄：第一列五張單欄卡，第二列兩張雙欄法人卡加 VIX。
+ * 卡片剛好排成兩列五欄：第一列五張單欄卡 (最後一張為期貨未平倉)，
+ * 第二列兩張雙欄法人卡加匯率與 VIX。
  * 用 auto-fill 的話寬螢幕會多出第六欄，右側留下一整條空白，因此依寬度明訂欄數。
  */
 .overview {
@@ -357,13 +399,6 @@ function levelClass(level: Level | null): string {
     font-size: 13px;
 }
 
-.vix-name em {
-    margin-left: 4px;
-    color: var(--text-muted);
-    font-size: 11px;
-    font-style: normal;
-}
-
 .vix-value {
     font-size: 20px;
 }
@@ -380,6 +415,37 @@ function levelClass(level: Level | null): string {
     .tile-wide {
         grid-column: span 1;
     }
+}
+
+/* 1100 到 1300 寬度時卡片很窄，欄寬與字級都要收斂，負號加六位數才放得下 */
+.futures-row {
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.futures-name {
+    color: var(--text-secondary);
+}
+
+.futures-name em {
+    margin-left: 2px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-style: normal;
+}
+
+.futures-row strong {
+    font-size: 14px;
+    text-align: right;
+}
+
+.futures-diff {
+    font-size: 11px;
+    text-align: right;
 }
 
 .tile-head {

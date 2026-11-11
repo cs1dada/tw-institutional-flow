@@ -5,13 +5,13 @@
  * 對照同樣的融資水位當時指數在哪裡。
  *
  * 官方全市場擔保維持率與追繳處分來自臺股儀表板，只有全市場合計，
- * 切換上市上櫃時畫的是同一條。
+ * 切換上市上櫃時畫的是同一條；期貨未平倉也一樣不分上市上櫃。
  */
 import { computed, ref } from "vue"
 import VChart from "vue-echarts"
 
 import MarketChipInsight from "@/components/MarketChipInsight.vue"
-import type { ChipRow, CreditRow, IndexRow, MarketPayload } from "@/types"
+import type { ChipRow, CreditRow, FuturesRow, IndexRow, MarketPayload } from "@/types"
 import { formatDate } from "@/utils/format"
 import { expandRows } from "@/utils/indexBars"
 import {
@@ -23,6 +23,7 @@ import {
     callPeaks,
     expandChip,
     expandCredit,
+    expandFutures,
     maintenanceLows,
     similarMarginDays,
     vixHighs,
@@ -98,6 +99,10 @@ const usVix = computed(() => new Map(props.market?.macro.USVIX ?? []))
 const credit = computed<CreditRow[]>(() => (props.market ? expandCredit(props.market) : []))
 const creditByDate = computed(() => new Map(credit.value.map((row) => [row.date, row])))
 
+/** 臺股期貨未平倉 */
+const futures = computed<FuturesRow[]>(() => (props.market ? expandFutures(props.market) : []))
+const futuresByDate = computed(() => new Map(futures.value.map((row) => [row.date, row])))
+
 const similar = computed(() => similarMarginDays(rows.value, closes.value))
 
 const coverage = computed(() => {
@@ -136,6 +141,13 @@ const colorNote = computed(() => {
             + `18 以下平靜 (藍)、18 到 25 正常 (灰)、25 以上警戒 (紅)、${VIX_PANIC.TW} 以上恐慌 (深紅)；`
             + `虛線為台指的門檻；美國 VIX 門檻較低 (恐慌 ${VIX_PANIC.US})，只畫線供對照。${since}`
     }
+    if (info.kind === "futures") {
+        const since = futures.value.length ? `資料從 ${formatDate(futures.value[0].date)} 起。` : ""
+        return "下方柱狀圖為外資在臺股期貨 (大台，各月份合計) 的多空未平倉淨額，負值代表淨空單；"
+            + "紅色為淨額較前一日增加 (偏多或空單回補)，綠色為減少 (加空或多單出場)。"
+            + "灰線 (右軸) 為全市場未沖銷契約數，沒有方向，代表場內押注的規模。"
+            + `外資期貨空單常是現貨部位的避險，要搭配現貨買賣超一起看。${since}`
+    }
     if (info.kind === "net") {
         return "下方柱狀圖：紅色為買超，綠色為賣超。"
     }
@@ -148,6 +160,9 @@ function metricValue(row: ChipRow): number | null {
     }
     if (metric.value === "calls") {
         return creditByDate.value.get(row.date)?.below_acc ?? null
+    }
+    if (metric.value === "futures") {
+        return futuresByDate.value.get(row.date)?.foreign ?? null
     }
     const value = row[metric.value]
     return typeof value === "number" ? value : null
@@ -192,6 +207,7 @@ const chartOption = computed(() => {
     const isLine = isMaintenance || info.kind === "ratio"
     const isVix = info.kind === "vix"
     const isCalls = info.kind === "calls"
+    const isFutures = info.kind === "futures"
 
     /**
      * 圖上要標出的日子，與下方表格一致：融資餘額為相近日、維持率為最低的 5 天、
@@ -355,6 +371,35 @@ const chartOption = computed(() => {
                 }]
                 : []),
         ]
+        : isFutures
+        ? [
+            {
+                name: "外資淨未平倉",
+                type: "bar",
+                xAxisIndex: 1,
+                yAxisIndex: 1,
+                data: values.map((value, index) => {
+                    if (value === null) {
+                        return "-"
+                    }
+                    // 淨額恆為負值時依正負上色會一片綠，改看較前一日的增減
+                    const prev = index ? values[index - 1] : null
+                    const sign = prev === null ? 0 : value - prev
+                    return { value, itemStyle: { color: sign >= 0 ? buyColor() : sellColor(), opacity: 0.7 } }
+                }),
+            },
+            {
+                name: "全市場未平倉",
+                type: "line",
+                xAxisIndex: 1,
+                yAxisIndex: 2,
+                data: data.map((row) => futuresByDate.value.get(row.date)?.market_oi ?? "-"),
+                symbol: "none",
+                connectNulls: true,
+                lineStyle: { width: 1.6, color: c.secondary },
+                itemStyle: { color: c.secondary },
+            },
+        ]
         : isCalls
         ? [{
             name: "追繳戶數",
@@ -392,7 +437,8 @@ const chartOption = computed(() => {
      */
     const zonedIndex = metricSeries.findIndex((item) => item.name === "台指 VIX" || item.name === "官方全市場維持率")
     // 有分區門檻時右側多留空間放分區名稱，上下兩張圖一起調整，x 軸才會對齊
-    const gridRight = zonedIndex < 0 ? 20 : 58
+    // 期貨未平倉的全市場口數畫在右軸，也要留空間
+    const gridRight = zonedIndex < 0 && !isFutures ? 20 : 58
     const visualMap = zonedIndex < 0
         ? []
         : [{
@@ -419,6 +465,7 @@ const chartOption = computed(() => {
                 const vixText = (value: number | undefined, market: "TW" | "US") =>
                     value === undefined ? "--" : `${fmt(value, 2)}（${vixLevel(value, market).label}）`
                 const official = creditByDate.value.get(row.date)
+                const future = futuresByDate.value.get(row.date)
                 const pct = (value: number | null | undefined, digits = 2) =>
                     value === null || value === undefined ? "--" : `${fmt(value, digits)}%`
                 return [
@@ -434,6 +481,10 @@ const chartOption = computed(() => {
                     `融券餘額　${fmt(row.short_units, 0)} 張`,
                     `融資占市值　${pct(row.margin_ratio, 3)}　信用交易占成交　${pct(row.credit_ratio)}`,
                     `追繳戶數　${official?.below_acc == null ? "--" : `${fmt(official.below_acc, 0)} 戶`}`,
+                    `期貨淨未平倉　外資 ${colored(future?.foreign, signedFmt(future?.foreign, 0))}`
+                        + `　投信 ${colored(future?.trust, signedFmt(future?.trust, 0))}`
+                        + `　自營 ${colored(future?.dealer, signedFmt(future?.dealer, 0))} 口`,
+                    `全市場未平倉　${fmt(future?.market_oi, 0)} 口`,
                     `台指 VIX　${vixText(twVix.value.get(row.date), "TW")}`,
                     `美國 VIX　${vixText(usVix.value.get(row.date), "US")}`,
                 ].join("<br>")
@@ -465,6 +516,8 @@ const chartOption = computed(() => {
                     ? `${MARKET_LABELS[marketKey.value]}融資維持率（彩色：官方全市場依分區上色、綠：民間版）`
                     : isCalls
                     ? "全市場追繳戶數（維持率低於 130%）"
+                    : isFutures
+                    ? "臺股期貨未平倉（柱：外資淨額、灰線：全市場，口）"
                     : info.kind === "ratio"
                     ? `${MARKET_LABELS[marketKey.value]}融資餘額占市值（%）`
                     : `${MARKET_LABELS[marketKey.value]}${info.label}（${info.unit}）`,
@@ -535,6 +588,18 @@ const chartOption = computed(() => {
                 axisLabel: { color: c.muted, fontSize: 11 },
                 // 有分區門檻虛線時不畫格線，避免兩種虛線混在一起
                 splitLine: { show: !(isMaintenance || isVix), lineStyle: { color: c.border, type: "dashed" } },
+            },
+            // 期貨未平倉的全市場口數，與外資淨額的量級和正負都不同，另用右軸
+            {
+                gridIndex: 1,
+                show: isFutures,
+                scale: true,
+                splitNumber: 3,
+                position: "right",
+                axisLine: { show: false },
+                axisTick: { show: false },
+                axisLabel: { color: c.muted, fontSize: 11, formatter: (value: number) => `${Math.round(value / 1000)}k` },
+                splitLine: { show: false },
             },
         ],
         series: [
@@ -639,6 +704,7 @@ const chartOption = computed(() => {
 
         <VChart v-if="visible.length" class="chart chip-chart" :option="chartOption" autoresize />
         <p v-else class="notice">尚無籌碼資料，請先執行 python scripts/ingest_market.py</p>
+        <p v-if="metric === 'futures' && !futures.length" class="notice">尚無期貨未平倉資料，請先執行 python scripts/daily_job.py</p>
         <p v-if="visible.length" class="panel-note color-note">{{ colorNote }}</p>
 
         <!-- 相近日只跟融資餘額有關，切到其他指標時不顯示 -->
@@ -704,6 +770,7 @@ const chartOption = computed(() => {
             :us-vix="usVix"
             :credit="credit"
             :credit-history="market?.credit_history"
+            :futures="futures"
             :market-key="marketKey"
         />
     </section>
@@ -714,7 +781,7 @@ const chartOption = computed(() => {
     margin-bottom: 8px;
 }
 
-/* 指標有十個，手機寬度下換行而不是把每個字擠成直排 */
+/* 指標有十一個，手機寬度下換行而不是把每個字擠成直排 */
 .controls .tabs {
     flex-wrap: wrap;
 }

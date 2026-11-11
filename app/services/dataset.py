@@ -488,6 +488,13 @@ MARKET_CHIP_FIELDS = (
 )
 # 官方全市場擔保維持率與追繳處分 (臺股儀表板)，金額為億元
 MARKET_CREDIT_FIELDS = ("date", "keep_rate", "below_acc", "call_amt", "exe_acc", "exe_amt")
+# 臺股期貨未平倉：三大法人的多空未平倉淨額、外資的多空單，以及全市場未沖銷契約數，單位皆為口
+FUTURES_FIELDS = (
+    "date", "foreign", "trust", "dealer", "foreign_long", "foreign_short", "market_oi",
+)
+# 期交所兩份資料的契約代碼不同：法人未平倉為 TXF，每日行情為 TX
+FUTURES_INST_COMMODITY = "TXF"
+FUTURES_DAILY_COMMODITY = "TX"
 # 櫃買指數輸出的交易日數，約兩年
 TPEX_INDEX_DAYS = 500
 # 總體指標每條序列輸出的筆數
@@ -573,6 +580,8 @@ def build_market(conn, days=config.MARKET_CHIP_DAYS):
             [row["year"], row["margin_ratio"], row["credit_ratio"]]
         )
 
+    futures = build_futures(conn, days)
+
     macro = {}
     for series in (config.MACRO_USDTWD, config.MACRO_TWVIX, config.MACRO_USVIX):
         rows = conn.execute(
@@ -587,6 +596,41 @@ def build_market(conn, days=config.MARKET_CHIP_DAYS):
         "macro": macro,
         "credit": credit,
         "credit_history": {"fields": ["year", "margin_ratio", "credit_ratio"], **history},
+        "futures": futures,
+    }
+
+
+def build_futures(conn, days=config.MARKET_CHIP_DAYS):
+    """臺股期貨的三大法人未平倉與全市場未沖銷契約數。
+
+    全市場未平倉為各月份合約一般時段的未沖銷契約數加總 (盤後時段沒有這個欄位)。
+    法人資料約 15:00 公布，每日行情稍晚，最新一天的全市場未平倉可能是 null。
+    """
+    rows = conn.execute(
+        """
+        SELECT i.date,
+               MAX(CASE WHEN i.identity = 'foreign' THEN i.net_oi END) AS foreign_oi,
+               MAX(CASE WHEN i.identity = 'trust' THEN i.net_oi END) AS trust_oi,
+               MAX(CASE WHEN i.identity = 'dealer' THEN i.net_oi END) AS dealer_oi,
+               MAX(CASE WHEN i.identity = 'foreign' THEN i.long_oi END) AS foreign_long,
+               MAX(CASE WHEN i.identity = 'foreign' THEN i.short_oi END) AS foreign_short,
+               (SELECT SUM(f.open_interest) FROM future_daily f
+                WHERE f.date = i.date AND f.commodity = ? AND f.session = 'regular') AS market_oi
+        FROM future_inst i
+        WHERE i.commodity = ?
+        GROUP BY i.date
+        ORDER BY i.date DESC
+        LIMIT ?
+        """,
+        (FUTURES_DAILY_COMMODITY, FUTURES_INST_COMMODITY, days),
+    ).fetchall()
+    return {
+        "fields": list(FUTURES_FIELDS),
+        "items": [
+            [row["date"], row["foreign_oi"], row["trust_oi"], row["dealer_oi"],
+             row["foreign_long"], row["foreign_short"], row["market_oi"]]
+            for row in reversed(rows)
+        ],
     }
 
 
@@ -650,6 +694,14 @@ def merge_market(old, new, days=config.MARKET_CHIP_DAYS):
         "items": _merge_rows(
             old_credit.get("fields"), old_credit.get("items"),
             new["credit"]["fields"], new["credit"]["items"], days,
+        ),
+    }
+    old_futures = old.get("futures") or {}
+    result["futures"] = {
+        "fields": new["futures"]["fields"],
+        "items": _merge_rows(
+            old_futures.get("fields"), old_futures.get("items"),
+            new["futures"]["fields"], new["futures"]["items"], days,
         ),
     }
     # 年度資料來源每次都給完整歷史，抓取失敗而沒有資料時才沿用舊檔

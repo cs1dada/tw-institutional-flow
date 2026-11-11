@@ -3,7 +3,7 @@
  *
  * 全部是純函式，不碰 DOM 也不碰 Vue。
  */
-import type { ChipRow, CreditRow, MarketPayload } from "@/types"
+import type { ChipRow, CreditRow, FuturesRow, MarketPayload } from "@/types"
 
 export type MarketKey = "TWSE" | "TPEX"
 
@@ -27,6 +27,8 @@ export const CHIP_METRICS = [
     { key: "calls", label: "追繳處分", unit: "戶", kind: "calls" },
     // 不分上市上櫃，下方同時畫台指與美國 VIX
     { key: "vix", label: "恐慌指標", unit: "VIX", kind: "vix" },
+    // 臺股期貨三大法人未平倉，不分上市上櫃
+    { key: "futures", label: "期貨未平倉", unit: "口", kind: "futures" },
 ] as const
 
 export type ChipMetric = (typeof CHIP_METRICS)[number]["key"]
@@ -54,6 +56,21 @@ export function expandCredit(payload: MarketPayload): CreditRow[] {
             obj[name] = row[index]
         })
         return obj as unknown as CreditRow
+    })
+}
+
+/** 臺股期貨未平倉，舊版資料檔沒有時回傳空陣列 */
+export function expandFutures(payload: MarketPayload): FuturesRow[] {
+    const futures = payload.futures
+    if (!futures) {
+        return []
+    }
+    return futures.items.map((row) => {
+        const obj: Record<string, unknown> = {}
+        futures.fields.forEach((name, index) => {
+            obj[name] = row[index]
+        })
+        return obj as unknown as FuturesRow
     })
 }
 

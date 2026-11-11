@@ -261,6 +261,23 @@ export interface MarketPayload {
     credit?: Pick<IndexPayload, "fields" | "items">
     /** 年度融資占市值與信用交易占比，各市場為 [年, 融資占市值 %, 信用交易占比 %] */
     credit_history?: { fields: string[]; TWSE?: [string, number | null, number | null][]; TPEX?: [string, number | null, number | null][] }
+    /** 臺股期貨未平倉 (口)，見 FuturesRow；舊版資料檔沒有 */
+    futures?: Pick<IndexPayload, "fields" | "items">
+}
+
+/** 展開後的單日臺股期貨未平倉，單位為口 */
+export interface FuturesRow {
+    date: string
+    /** 外資及陸資的多空未平倉淨額，正為淨多、負為淨空 */
+    foreign: number | null
+    /** 投信淨額，主要是期貨 ETF 的避險與追蹤部位 */
+    trust: number | null
+    dealer: number | null
+    /** 外資的多方、空方未平倉 */
+    foreign_long: number | null
+    foreign_short: number | null
+    /** 全市場未沖銷契約數 (各月份合計)，沒有方向；每日行情較晚公布，最新一天可能為 null */
+    market_oi: number | null
 }
 
 /** 展開後的單日官方信用交易指標 (全市場) */

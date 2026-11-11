@@ -3,12 +3,12 @@
  * 大盤籌碼圖下方的摘要與對照表，內容跟著上方選的指標換：
  * 法人看連續買賣超與累計，融券看近期增減，
  * 維持率、VIX 與追繳戶數則列出極端值的日子，對照之後 20 個交易日指數怎麼走；
- * 融資槓桿列出近期比重與 2000 年以來的年度歷史。
+ * 融資槓桿列出近期比重與 2000 年以來的年度歷史；期貨未平倉看外資淨額的增減與近期明細。
  * 融資餘額有自己的「相近日」表，在 MarketChipPanel 裡處理，這裡不顯示。
  */
 import { computed } from "vue"
 
-import type { ChipRow, CreditRow, MarketPayload } from "@/types"
+import type { ChipRow, CreditRow, FuturesRow, MarketPayload } from "@/types"
 import { formatDate } from "@/utils/format"
 import {
     callPeaks,
@@ -39,6 +39,8 @@ const props = defineProps<{
     creditHistory?: MarketPayload["credit_history"]
     /** TWSE 或 TPEX，用來挑年度歷史 */
     marketKey: "TWSE" | "TPEX"
+    /** 臺股期貨未平倉 */
+    futures: FuturesRow[]
 }>()
 
 /** 對照極端值之後的指數走勢，取 20 個交易日 (約一個月) */
@@ -486,6 +488,68 @@ function vixView(): View {
     }
 }
 
+/** 期貨未平倉：外資淨額與各區間的增減，下方列近 10 天三大法人與全市場 */
+function futuresView(): View {
+    const rows = props.futures.filter((row) => row.foreign !== null)
+    const last = rows[rows.length - 1]
+    /** n 個交易日前到最新一天的增減，資料不足時為 null */
+    const changeOf = (key: "foreign" | "trust" | "dealer", n: number): number | null => {
+        const base = rows[rows.length - 1 - n]?.[key]
+        const now = last?.[key]
+        return base === null || base === undefined || now === null || now === undefined ? null : now - base
+    }
+    const marketRows = props.futures.filter((row) => row.market_oi !== null)
+    const marketLast = marketRows[marketRows.length - 1]
+    const marketPrev = marketRows[marketRows.length - 2]
+    const marketDiff = marketLast && marketPrev ? marketLast.market_oi! - marketPrev.market_oi! : null
+    const lots = (value: number | null | undefined) => `${signed(value, 0)} 口`
+    const stats: Stat[] = [
+        {
+            label: `外資淨未平倉 ${last ? formatDate(last.date).slice(5) : ""}`,
+            value: lots(last?.foreign),
+            sub: last ? `多 ${fmt(last.foreign_long, 0)}／空 ${fmt(last.foreign_short, 0)}` : undefined,
+            tone: toneOf(last?.foreign),
+        },
+        ...[1, 5, 20].map((n) => {
+            const diff = changeOf("foreign", n)
+            return { label: n === 1 ? "外資較前一日" : `外資近 ${n} 日增減`, value: lots(diff), tone: toneOf(diff) }
+        }),
+        { label: "投信淨未平倉", value: lots(last?.trust), sub: `較前一日 ${lots(changeOf("trust", 1))}`, tone: toneOf(last?.trust) },
+        { label: "自營商淨未平倉", value: lots(last?.dealer), sub: `較前一日 ${lots(changeOf("dealer", 1))}`, tone: toneOf(last?.dealer) },
+        {
+            label: `全市場未平倉 ${marketLast ? formatDate(marketLast.date).slice(5) : ""}`,
+            value: `${fmt(marketLast?.market_oi, 0)} 口`,
+            sub: `較前一日 ${lots(marketDiff)}`,
+        },
+    ]
+    const recent = rows.slice(-RECENT_DAYS - 1)
+    return {
+        stats,
+        tables: [{
+            title: `臺股期貨未平倉近 ${RECENT_DAYS} 個交易日（口）`,
+            note: "外資淨額的增減對照當天指數漲跌；投信多單主要是期貨 ETF 的部位，不代表看多",
+            columns: ["日期", "外資淨額", "外資增減", "投信淨額", "自營商淨額", "全市場", `${props.indexName}收盤`, "指數漲跌"],
+            rows: recent.slice(1).map((row, index) => {
+                const diff = row.foreign! - recent[index].foreign!
+                const pct = dayPct(row.date)
+                return {
+                    key: row.date,
+                    cells: [
+                        { text: formatDate(row.date) },
+                        { text: signed(row.foreign, 0), tone: toneOf(row.foreign) },
+                        { text: signed(diff, 0), tone: toneOf(diff) },
+                        { text: signed(row.trust, 0), tone: toneOf(row.trust) },
+                        { text: signed(row.dealer, 0), tone: toneOf(row.dealer) },
+                        { text: fmt(row.market_oi, 0) },
+                        { text: fmt(props.closes.get(row.date), 2) },
+                        { text: pct === null ? "--" : `${signed(pct, 2)}%`, tone: toneOf(pct) },
+                    ],
+                }
+            }).reverse(),
+        }],
+    }
+}
+
 const view = computed(() => {
     if (!props.rows.length) {
         return null
@@ -506,6 +570,8 @@ const view = computed(() => {
             return ratioView()
         case "calls":
             return callsView()
+        case "futures":
+            return props.futures.length ? futuresView() : null
         default:
             return null
     }

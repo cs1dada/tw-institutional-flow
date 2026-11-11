@@ -178,6 +178,19 @@ CREATE TABLE IF NOT EXISTS future_daily (
 CREATE INDEX IF NOT EXISTS idx_future_daily_lookup
     ON future_daily(commodity, session, date, contract_month);
 
+-- 三大法人期貨未平倉 (期交所「三大法人-區分各期貨契約」)，口數為所有月份合計
+CREATE TABLE IF NOT EXISTS future_inst (
+    date            TEXT NOT NULL,
+    commodity       TEXT NOT NULL,   -- 期交所契約代碼，例如 TXF (臺股期貨)
+    identity        TEXT NOT NULL,   -- foreign (外資及陸資) / trust (投信) / dealer (自營商)
+    net_trade       INTEGER,         -- 當日多空交易口數淨額
+    long_oi         INTEGER,         -- 多方未平倉口數
+    short_oi        INTEGER,         -- 空方未平倉口數
+    net_oi          INTEGER,         -- 多空未平倉口數淨額
+    net_oi_amount   REAL,            -- 多空未平倉契約金額淨額，單位：千元
+    PRIMARY KEY (date, commodity, identity)
+);
+
 -- 分析師共識的年度 EPS 預估 (Yahoo Finance)，每天存一份快照才能累積歷史。
 -- Yahoo 只提供今年與明年兩個會計年度，前瞻本益比由收盤價除以這裡的 eps_avg 計算
 CREATE TABLE IF NOT EXISTS eps_estimate (

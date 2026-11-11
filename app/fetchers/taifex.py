@@ -265,3 +265,101 @@ def fetch_daily_bars(commodity, start, end):
             ),
         })
     return rows
+
+
+# ---------------------------------------------------------------------------
+# 三大法人期貨未平倉 (盤後)
+# ---------------------------------------------------------------------------
+#
+# 期交所「三大法人-區分各期貨契約」的 CSV 下載，免費、不需認證。
+# 實測一次查一整年也能正常回傳，不像每日行情有一個月的上限。
+# 每個交易日三列：自營商、投信、外資及陸資，口數之外另有契約金額 (千元)。
+
+INST_URL = "https://www.taifex.com.tw/cht/3/futContractsDateDown"
+INST_REFERER = "https://www.taifex.com.tw/cht/3/futContractsDate"
+# 單次查詢的天數上限 (實測一年可過，保守取 366 天)
+INST_MAX_DAYS = 366
+
+# CSV 的欄位位置
+INST_DATE = 0
+INST_IDENTITY = 2
+INST_NET_TRADE = 7
+INST_LONG_OI = 9
+INST_SHORT_OI = 11
+INST_NET_OI = 13
+INST_NET_OI_AMOUNT = 14
+INST_MIN_COLUMNS = 15
+
+# 身份別的中文對照
+INST_IDENTITIES = {
+    "外資及陸資": "foreign",
+    "投信": "trust",
+    "自營商": "dealer",
+}
+
+
+def _csv_int(value):
+    number = _csv_number(value)
+    return None if number is None else int(number)
+
+
+def fetch_inst_futures(commodity, start, end):
+    """下載一段期間三大法人在某個期貨契約的交易與未平倉口數。
+
+    commodity 為期交所的契約代碼，例如 TXF (臺股期貨)、MXF (小型臺指)。
+    start 與 end 為 date 物件，區間不得超過 INST_MAX_DAYS。
+    回傳的每一列都是可直接寫入 future_inst 的 dict。
+    """
+    import csv
+    import io
+
+    if (end - start).days >= INST_MAX_DAYS:
+        raise ValueError(f"單次查詢不得超過 {INST_MAX_DAYS} 天")
+
+    resp = _get_session().post(
+        INST_URL,
+        data={
+            "queryStartDate": start.strftime("%Y/%m/%d"),
+            "queryEndDate": end.strftime("%Y/%m/%d"),
+            "commodityId": commodity,
+        },
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": INST_REFERER,
+        },
+        timeout=config.REQUEST_TIMEOUT,
+    )
+    resp.raise_for_status()
+
+    body = resp.content.decode(DAILY_ENCODING, errors="replace")
+    if body.lstrip().upper().startswith("<!DOCTYPE"):
+        raise RuntimeError("期交所拒絕這次查詢 (多半是日期區間過長)")
+
+    rows = []
+    for raw in csv.reader(io.StringIO(body)):
+        if len(raw) < INST_MIN_COLUMNS:
+            continue
+        date_text = raw[INST_DATE].strip()
+        # 略過標題列
+        if not date_text[:4].isdigit():
+            continue
+        identity = INST_IDENTITIES.get(raw[INST_IDENTITY].strip())
+        if identity is None:
+            logger.warning("期交所法人未平倉出現未知的身份別：%s", raw[INST_IDENTITY])
+            continue
+        long_oi = _csv_int(raw[INST_LONG_OI])
+        short_oi = _csv_int(raw[INST_SHORT_OI])
+        # 當天尚未公布時，期交所會先回一列全部為 0 的資料，寫進去會把未平倉畫成歸零
+        if not long_oi and not short_oi:
+            continue
+        rows.append({
+            "date": date_text.replace("/", ""),
+            "commodity": commodity,
+            "identity": identity,
+            "net_trade": _csv_int(raw[INST_NET_TRADE]),
+            "long_oi": long_oi,
+            "short_oi": short_oi,
+            "net_oi": _csv_int(raw[INST_NET_OI]),
+            "net_oi_amount": _csv_number(raw[INST_NET_OI_AMOUNT]),
+        })
+    return rows
