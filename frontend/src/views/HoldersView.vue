@@ -8,9 +8,13 @@
  *
  * 集保依身分歸戶，外資、投信、ETF 的帳戶各算一人，多半落在千張大戶，因此千張大戶包含法人。
  */
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onMounted, ref, watch } from "vue"
 
 import { loadHolders, loadHoldersStock, loadHoldersWeek } from "@/api/dataSource"
+import BarChart from "@/components/BarChart.vue"
+import HoldersLevelChart from "@/components/HoldersLevelChart.vue"
+import HoldersScatter from "@/components/HoldersScatter.vue"
+import HoldersTrendChart from "@/components/HoldersTrendChart.vue"
 import type { HoldersRow, HoldersStock, HoldersWeek } from "@/types"
 import { formatDate, signed, signedPct } from "@/utils/format"
 
@@ -38,6 +42,21 @@ const RETAIL_IN_PCT = 3
 const RETAIL_OUT_PCT = -1.5
 
 const COLLAPSED_ROWS = 20
+
+/** 至少兩週才連得成線，週數少時圖只有幾個點，逐週明細表仍可展開對照 */
+const TREND_MIN_WEEKS = 2
+
+/** 產業至少要有這麼多檔可比較的個股，平均值才有參考價值 */
+const INDUSTRY_MIN_STOCKS = 3
+
+interface IndustryRow {
+    industry: string
+    count: number
+    bigDiff: number
+    holdersPct: number
+    bigUp: number
+    bigDown: number
+}
 
 const weeks = ref<{ date: string; stock_count: number }[]>([])
 const selectedWeek = ref("")
@@ -107,6 +126,54 @@ const summary = computed(() => {
         retailOut: rows.filter((r) => r.holders_pct <= RETAIL_OUT_PCT).length,
     }
 })
+
+/** 依產業彙總千張大戶比例的平均變化，看這週大戶在收哪些族群 */
+const industryRows = computed<IndustryRow[]>(() => {
+    const groups = new Map<string, HoldersRow[]>()
+    for (const row of comparable.value) {
+        if (!row.industry) {
+            continue
+        }
+        const list = groups.get(row.industry) ?? []
+        list.push(row)
+        groups.set(row.industry, list)
+    }
+    const avg = (list: HoldersRow[], pick: (r: HoldersRow) => number) =>
+        list.reduce((sum, r) => sum + pick(r), 0) / list.length
+    return [...groups.entries()]
+        .filter(([, list]) => list.length >= INDUSTRY_MIN_STOCKS)
+        .map(([industry, list]) => ({
+            industry,
+            count: list.length,
+            bigDiff: +avg(list, (r) => r.big_diff).toFixed(2),
+            holdersPct: avg(list, (r) => r.holders_pct),
+            bigUp: list.filter((r) => r.big_diff >= BIG_THRESHOLD).length,
+            bigDown: list.filter((r) => r.big_diff <= -BIG_THRESHOLD).length,
+        }))
+        .sort((a, b) => b.bigDiff - a.bigDiff)
+})
+
+function industryTooltip(row: IndustryRow): string {
+    return [
+        `<strong>${row.industry}</strong> (${row.count} 檔)`,
+        `千張大戶平均　${signed(row.bigDiff)} 百分點`,
+        `股東人數平均　${signedPct(row.holdersPct, 1)}`,
+        `大戶在收 ${row.bigUp} 檔，在賣 ${row.bigDown} 檔`,
+    ].join("<br>")
+}
+
+const tablePanel = ref<HTMLElement | null>(null)
+
+/** 從散佈圖點選個股：改用查詢模式列出該檔並展開明細 */
+async function selectFromChart(code: string) {
+    keyword.value = code
+    // 等 keyword 的 watch 清掉 openCode 之後再展開
+    await nextTick()
+    if (openCode.value !== code) {
+        await toggle(code)
+    }
+    tablePanel.value?.scrollIntoView({ behavior: "smooth", block: "start" })
+}
 
 const panelNote = computed(() => {
     if (!week.value?.prev_date) {
@@ -312,7 +379,40 @@ onMounted(async () => {
             </div>
         </div>
 
-        <section v-if="hasPrev" class="panel" data-nav="排行">
+        <section v-if="hasPrev && comparable.length" class="panel holders-chart-panel" data-nav="分布圖">
+            <div class="panel-head">
+                <h2>籌碼流向分布</h2>
+                <p class="panel-note">
+                    一個點是一檔股票，紅漲綠跌是股價週漲跌，空心點代表數值超出畫面、貼在邊緣。左上是大戶收、散戶走，右下是大戶賣、散戶接。點一下可看該檔明細。
+                </p>
+            </div>
+            <HoldersScatter
+                :rows="comparable"
+                :big-threshold="BIG_THRESHOLD"
+                :retail-in="RETAIL_IN_PCT"
+                :retail-out="RETAIL_OUT_PCT"
+                @select="selectFromChart"
+            />
+        </section>
+
+        <section v-if="hasPrev && industryRows.length" class="panel holders-chart-panel" data-nav="產業">
+            <div class="panel-head">
+                <h2>大戶在收哪些產業</h2>
+                <p class="panel-note">
+                    各產業千張大戶比例的平均週變化 (百分點)，只列可比較個股達 {{ INDUSTRY_MIN_STOCKS }} 檔以上的產業。
+                </p>
+            </div>
+            <BarChart
+                :rows="industryRows"
+                :name-of="(row: IndustryRow) => `${row.industry} (${row.count})`"
+                :value-of="(row: IndustryRow) => row.bigDiff"
+                :tooltip="industryTooltip"
+                :label-width="170"
+                unit="百分點"
+            />
+        </section>
+
+        <section v-if="hasPrev" ref="tablePanel" class="panel" data-nav="排行">
             <div class="panel-head">
                 <h2>{{ searching ? "查詢結果" : BOARD_LABELS[board] }}</h2>
                 <p class="panel-note">{{ panelNote }}</p>
@@ -333,7 +433,7 @@ onMounted(async () => {
                 </div>
             </div>
 
-            <div class="table-wrap">
+            <div class="table-wrap holders-table-wrap">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -370,9 +470,13 @@ onMounted(async () => {
                                     <p v-if="detailError" class="notice">載入失敗：{{ detailError }}</p>
                                     <p v-else-if="!detail" class="muted">載入中</p>
                                     <div v-else class="detail-grid">
-                                        <div>
+                                        <div class="detail-chart">
                                             <h3 class="detail-title">逐週走勢</h3>
-                                            <table class="data-table detail-table">
+                                            <HoldersTrendChart v-if="detail.series.length >= TREND_MIN_WEEKS" :series="detail.series" />
+                                            <p v-else class="muted">只有 1 週資料，還畫不出走勢。</p>
+                                            <details class="level-table" :open="detail.series.length < TREND_MIN_WEEKS">
+                                                <summary class="muted">看逐週明細表</summary>
+                                                <table class="data-table detail-table">
                                                 <thead>
                                                     <tr>
                                                         <th>資料日</th>
@@ -391,14 +495,18 @@ onMounted(async () => {
                                                         <td class="num">{{ item.small_pct.toFixed(2) }}%</td>
                                                     </tr>
                                                 </tbody>
-                                            </table>
+                                                </table>
+                                            </details>
                                         </div>
-                                        <div>
+                                        <div class="detail-chart">
                                             <h3 class="detail-title">
-                                                各持股級距的人數
+                                                各持股級距
                                                 <span v-if="detail.previous" class="muted">（與前一週相比）</span>
                                             </h3>
-                                            <table class="data-table detail-table">
+                                            <HoldersLevelChart :latest="detail.latest" :previous="detail.previous" />
+                                            <details class="level-table">
+                                                <summary class="muted">看級距明細表</summary>
+                                                <table class="data-table detail-table">
                                                 <thead>
                                                     <tr>
                                                         <th>持股 (股)</th>
@@ -417,7 +525,8 @@ onMounted(async () => {
                                                         <td class="num" :class="polarity(levelDiff(lv.level, 'pct'))">{{ signed(levelDiff(lv.level, "pct")) }}</td>
                                                     </tr>
                                                 </tbody>
-                                            </table>
+                                                </table>
+                                            </details>
                                         </div>
                                     </div>
                                 </td>
@@ -499,6 +608,25 @@ onMounted(async () => {
     flex-wrap: wrap;
     gap: 24px;
     align-items: flex-start;
+}
+
+.detail-chart {
+    flex: 1 1 420px;
+    min-width: 0;
+}
+
+.level-table summary {
+    cursor: pointer;
+    margin: 4px 0 8px;
+}
+
+/* 清單已預設收合為前 20 名，展開的明細有圖表，不限制高度以免被擠進小捲動框 */
+.holders-table-wrap {
+    max-height: none;
+}
+
+.holders-chart-panel {
+    margin-bottom: 16px;
 }
 
 .detail-title {
