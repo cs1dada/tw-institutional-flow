@@ -10,6 +10,7 @@ import {
     CandlestickChart,
     HeatmapChart,
     LineChart,
+    SankeyChart,
     ScatterChart,
     TreemapChart,
 } from "echarts/charts"
@@ -35,6 +36,7 @@ use([
     BarChart,
     TreemapChart,
     ScatterChart,
+    SankeyChart,
     // 題材輪動熱力圖 (籌碼分布)
     HeatmapChart,
     // 座標軸、提示框、圖例與縮放

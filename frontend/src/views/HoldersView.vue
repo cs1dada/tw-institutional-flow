@@ -14,6 +14,7 @@ import { loadHolders, loadHoldersAnalysis, loadHoldersStock, loadHoldersWeek } f
 import BarChart from "@/components/BarChart.vue"
 import HoldersLevelChart from "@/components/HoldersLevelChart.vue"
 import HoldersScatter from "@/components/HoldersScatter.vue"
+import HoldersThemeFlowChart from "@/components/HoldersThemeFlowChart.vue"
 import HoldersThemeHeatmap from "@/components/HoldersThemeHeatmap.vue"
 import HoldersTrendChart from "@/components/HoldersTrendChart.vue"
 import type { HoldersAnalysis, HoldersBacktestRow, HoldersRow, HoldersStock, HoldersWeek } from "@/types"
@@ -66,7 +67,7 @@ const MID_THRESHOLD = 0.3
 const RANK_HIGH = 80
 const RANK_LOW = 20
 
-const COLLAPSED_ROWS = 20
+const COLLAPSED_ROWS = 5
 
 /** 至少兩週才連得成線，週數少時圖只有幾個點，逐週明細表仍可展開對照 */
 const TREND_MIN_WEEKS = 2
@@ -223,6 +224,16 @@ const industryRows = computed<IndustryRow[]>(() => {
             bigDown: list.filter((r) => r.big_diff <= -th.value.big).length,
         }))
         .sort((a, b) => b.bigDiff - a.bigDiff)
+})
+
+const showAllIndustries = ref(false)
+
+/** 大戶在收產業長條圖：預設僅顯示前 5 名，可展開全部 */
+const displayIndustryRows = computed(() => {
+    if (showAllIndustries.value) {
+        return industryRows.value
+    }
+    return industryRows.value.slice(0, 5)
 })
 
 function industryTooltip(row: IndustryRow): string {
@@ -613,39 +624,51 @@ onMounted(async () => {
             </div>
         </div>
 
-        <section v-if="hasPrev && comparable.length" class="panel holders-chart-panel" data-nav="分布圖">
-            <div class="panel-head">
-                <h2>籌碼流向分布</h2>
-                <p class="panel-note">
-                    一個點是一檔股票，看的是 {{ PERIOD_LABELS[period] }} 的變化，紅漲綠跌是同期間的股價漲跌，空心點代表數值超出畫面、貼在邊緣。
-                    左上是大戶收、散戶走，右下是大戶賣、散戶接。點一下可看該檔明細。
-                </p>
-            </div>
-            <HoldersScatter
-                :rows="comparable"
-                :big-threshold="th.big"
-                :retail-in="th.retailIn"
-                :retail-out="th.retailOut"
-                @select="selectFromChart"
-            />
-        </section>
+        <div v-if="hasPrev && (comparable.length || industryRows.length)" class="charts-row">
+            <section v-if="comparable.length" class="panel holders-chart-panel" data-nav="分布圖">
+                <div class="panel-head">
+                    <h2>籌碼流向分布</h2>
+                    <p class="panel-note">
+                        一個點是一檔股票，看的是 {{ PERIOD_LABELS[period] }} 的變化，紅漲綠跌是同期間的股價漲跌，空心點代表數值超出畫面、貼在邊緣。
+                        左上是大戶收、散戶走，右下是大戶賣、散戶接。點一下可看該檔明細。
+                    </p>
+                </div>
+                <HoldersScatter
+                    :rows="comparable"
+                    :big-threshold="th.big"
+                    :retail-in="th.retailIn"
+                    :retail-out="th.retailOut"
+                    @select="selectFromChart"
+                />
+            </section>
 
-        <section v-if="hasPrev && industryRows.length" class="panel holders-chart-panel" data-nav="產業">
-            <div class="panel-head">
-                <h2>大戶在收哪些產業</h2>
-                <p class="panel-note">
-                    各產業千張大戶比例在 {{ PERIOD_LABELS[period] }} 內的平均變化 (百分點)，只列可比較個股達 {{ INDUSTRY_MIN_STOCKS }} 檔以上的產業。
-                </p>
-            </div>
-            <BarChart
-                :rows="industryRows"
-                :name-of="(row: IndustryRow) => `${row.industry} (${row.count})`"
-                :value-of="(row: IndustryRow) => row.bigDiff"
-                :tooltip="industryTooltip"
-                :label-width="170"
-                unit="百分點"
-            />
-        </section>
+            <section v-if="industryRows.length" class="panel holders-chart-panel" data-nav="產業">
+                <div class="panel-head">
+                    <div class="panel-head-flex">
+                        <h2>大戶在收哪些產業 {{ showAllIndustries ? "" : "(前 5 名)" }}</h2>
+                        <button
+                            v-if="industryRows.length > 5"
+                            type="button"
+                            class="chip flow-toggle"
+                            @click="showAllIndustries = !showAllIndustries"
+                        >
+                            {{ showAllIndustries ? "收合為前 5 名" : `查看全部 ${industryRows.length} 個產業` }}
+                        </button>
+                    </div>
+                    <p class="panel-note">
+                        各產業千張大戶比例在 {{ PERIOD_LABELS[period] }} 內的平均變化 (百分點)，只列可比較個股達 {{ INDUSTRY_MIN_STOCKS }} 檔以上的產業。
+                    </p>
+                </div>
+                <BarChart
+                    :rows="displayIndustryRows"
+                    :name-of="(row: IndustryRow) => `${row.industry} (${row.count})`"
+                    :value-of="(row: IndustryRow) => row.bigDiff"
+                    :tooltip="industryTooltip"
+                    :label-width="170"
+                    unit="百分點"
+                />
+            </section>
+        </div>
 
         <section v-if="hasPrev" ref="tablePanel" class="panel" data-nav="排行">
             <div class="panel-head">
@@ -826,6 +849,11 @@ onMounted(async () => {
                     單週格子雜訊大，切到上方的 4 週比較容易看出輪動。點一下格子會切到那一週的排行。
                 </p>
             </div>
+            <HoldersThemeFlowChart
+                :heatmap="analysis.heatmap"
+                :period="period"
+                :selected-date="selectedWeek || week?.date"
+            />
             <HoldersThemeHeatmap :heatmap="analysis.heatmap" :period="period" @select="selectWeek" />
         </section>
 
@@ -1027,6 +1055,40 @@ onMounted(async () => {
     border-left: 3px solid var(--text-secondary);
     background: var(--surface-0);
     line-height: 1.7;
+}
+
+.charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: stretch;
+    margin-bottom: 16px;
+}
+
+.charts-row .holders-chart-panel {
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.charts-row .holders-chart-panel :deep(.chart-tall),
+.charts-row .holders-chart-panel :deep(.chart) {
+    flex: 1;
+    min-height: 380px;
+}
+
+.panel-head-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+@media (max-width: 960px) {
+    .charts-row {
+        grid-template-columns: 1fr;
+    }
 }
 
 .holders-chart-panel {
