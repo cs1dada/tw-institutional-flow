@@ -8,6 +8,7 @@
 import {
     BarChart,
     CandlestickChart,
+    HeatmapChart,
     LineChart,
     ScatterChart,
     TreemapChart,
@@ -34,6 +35,8 @@ use([
     BarChart,
     TreemapChart,
     ScatterChart,
+    // 題材輪動熱力圖 (籌碼分布)
+    HeatmapChart,
     // 座標軸、提示框、圖例與縮放
     GridComponent,
     TooltipComponent,
@@ -45,6 +48,6 @@ use([
     MarkLineComponent,
     // 多格圖表各自的標題 (大盤籌碼圖)
     TitleComponent,
-    // 依數值分段上色的線 (維持率與 VIX 的分區)
+    // 依數值分段上色的線 (維持率與 VIX 的分區)，也用於熱力圖的分段色階
     VisualMapPiecewiseComponent,
 ])

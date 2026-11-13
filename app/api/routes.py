@@ -557,6 +557,16 @@ def api_holders():
         conn.close()
 
 
+@router.get("/holders-analysis")
+def api_holders_analysis():
+    """題材股的籌碼訊號回測與題材輪動熱力圖。"""
+    conn = connect()
+    try:
+        return holders.build_analysis(conn)
+    finally:
+        conn.close()
+
+
 @router.get("/holders/stock/{code}")
 def api_holders_stock(code: str):
     """單一個股的逐週大戶、散戶比例與最新兩週的完整級距。"""

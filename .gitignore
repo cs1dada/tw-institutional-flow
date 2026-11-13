@@ -21,3 +21,11 @@ frontend/.vite/
 
 # Shioaji 的連線日誌
 shioaji.log
+
+# 本地開發與資料來源暫存
+.vscode/
+screenshot/
+tdcc_shareholding_1y/
+tdcc_shareholding_1y.zip
+許願清單.txt
+

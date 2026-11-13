@@ -182,10 +182,12 @@ def export_holders(conn):
     holder_dir = DATA_DIR / "holders"
     week_bytes = 0
     db_weeks = holders.weeks(conn)
+    # 跨週指標要用到所有週次，一次載入後逐週共用
+    history = holders.History(conn)
     kept = 0
     for item in db_weeks:
         path = holder_dir / f"{item['date']}.json"
-        payload = holders.build_week(conn, item["date"])
+        payload = holders.build_week(conn, item["date"], history)
         if payload is None:
             continue
         # 資料庫缺了前一週時算不出週變化，可比較的檔數會變少，這時保留舊檔，不以較少的內容覆蓋
@@ -205,6 +207,16 @@ def export_holders(conn):
             index[path.stem] = {"date": path.stem, "stock_count": old.get("stock_count", len(old.get("rows", [])))}
     size = write_json(DATA_DIR / "holders.json", {"weeks": [index[d] for d in sorted(index, reverse=True)]})
     print(f"holders.json  {size / 1024:.1f} KB，週檔更新 {len(db_weeks) - kept} 個共 {week_bytes / 1024:.1f} KB，保留舊檔 {kept} 個")
+
+    # 回測與熱力圖：資料庫的週次比既有檔案少時 (快取被清掉)，保留舊檔
+    analysis_path = DATA_DIR / "holders_analysis.json"
+    analysis = holders.build_analysis(conn, history)
+    old = _read_json(analysis_path)
+    if old and old.get("weeks", 0) > analysis["weeks"]:
+        print(f"holders_analysis.json  資料庫只有 {analysis['weeks']} 週，少於既有的 {old['weeks']} 週，保留舊檔")
+    else:
+        size = write_json(analysis_path, analysis)
+        print(f"holders_analysis.json  {size / 1024:.1f} KB，{analysis['weeks']} 週")
 
     stock_dir = holder_dir / "stock"
     stock_bytes = 0

@@ -1031,6 +1031,49 @@ export interface HoldersRow {
     big_diff: number
     /** 與前一週資料日相比的收盤漲跌 (%) */
     price_pct: number | null
+    /** 以下為跨週指標，缺資料時不輸出 */
+    big_diff_4w?: number
+    big_diff_12w?: number
+    holders_pct_4w?: number
+    holders_pct_12w?: number
+    price_pct_4w?: number
+    price_pct_12w?: number
+    /** 千張大戶比例連續增加 (正數) 或減少 (負數) 的週數 */
+    streak?: number
+    /** 目前數值在近一年中的位置，0 為最低、100 為最高 */
+    big_rank?: number
+    holders_rank?: number
+    /** 400~1000 張中實戶佔股份 (%) 與週變化 (百分點) */
+    mid_pct?: number
+    mid_diff?: number
+    /** 千張大戶持股的週增減 (張) */
+    big_lots_diff?: number
+    /** 同期間三大法人買賣超合計 (張)，法人資料不涵蓋時不輸出 */
+    inst_lots?: number
+}
+
+export interface HoldersBacktestRow {
+    key: string
+    label: string
+    [field: string]: string | number | null
+}
+
+/** 題材股的籌碼訊號回測與題材輪動熱力圖 */
+export interface HoldersAnalysis {
+    weeks: number
+    first_week: string | null
+    last_week: string | null
+    stock_count: number
+    thresholds: { big: number; retail_in: number; retail_out: number; streak: number }
+    backtest: {
+        horizons: number[]
+        baseline: Record<string, number | null>
+        rows: HoldersBacktestRow[]
+    }
+    heatmap: {
+        weeks: string[]
+        themes: { id: string; name: string; values: (number | null)[]; counts: number[] }[]
+    }
 }
 
 export interface HoldersWeek {

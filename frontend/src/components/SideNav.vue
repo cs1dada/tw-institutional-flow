@@ -84,6 +84,11 @@ function onItemClick(isActive: boolean, navigate: () => void) {
 
 let observer: MutationObserver | null = null
 let pending = 0
+/**
+ * 區塊 id 的流水號。不能用畫面上的順序編號：區塊會分批出現 (例如等資料載入)，
+ * 後出現的區塊依順序拿到的編號可能和已經編好的重複，捷徑就會跳到別的區塊。
+ */
+let nextSectionId = 0
 
 function sectionElements(): HTMLElement[] {
     return [...document.querySelectorAll<HTMLElement>(SECTION_SELECTOR)]
@@ -91,9 +96,9 @@ function sectionElements(): HTMLElement[] {
 
 function scan() {
     pending = 0
-    const found = sectionElements().map((el, i) => {
+    const found = sectionElements().map((el) => {
         if (!el.id) {
-            el.id = `section-${i}`
+            el.id = `section-${nextSectionId++}`
         }
         return { id: el.id, label: el.dataset.nav ?? "" }
     })

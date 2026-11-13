@@ -18,6 +18,7 @@ import type {
     EtfTrendData,
     EtfData,
     HistoryData,
+    HoldersAnalysis,
     HoldersIndex,
     HoldersStock,
     HoldersWeek,
@@ -67,6 +68,7 @@ const SOURCES = {
         valuation: () => versioned("data/valuation.json"),
         valuationSnapshot: (date: string) => versioned(`data/valuation/${date}.json`),
         holders: () => versioned("data/holders.json"),
+        holdersAnalysis: () => versioned("data/holders_analysis.json"),
         holdersWeek: (date: string) => versioned(`data/holders/${date}.json`),
         holdersStock: (code: string) => versioned(`data/holders/stock/${code}.json`),
     },
@@ -90,6 +92,7 @@ const SOURCES = {
         valuation: () => "/api/valuation",
         valuationSnapshot: (date: string) => `/api/valuation/${date}`,
         holders: () => "/api/holders",
+        holdersAnalysis: () => "/api/holders-analysis",
         holdersWeek: (date: string) => `/api/holders/${date}`,
         holdersStock: (code: string) => `/api/holders/stock/${code}`,
     },
@@ -132,6 +135,7 @@ const cache: {
     valuation: ValuationIndex | null
     valuationSnapshots: Map<string, ValuationSnapshot>
     holders: HoldersIndex | null
+    holdersAnalysis: HoldersAnalysis | null
     holdersWeeks: Map<string, HoldersWeek>
     holdersStocks: Map<string, HoldersStock>
 } = {
@@ -154,6 +158,7 @@ const cache: {
     valuation: null,
     valuationSnapshots: new Map(),
     holders: null,
+    holdersAnalysis: null,
     holdersWeeks: new Map(),
     holdersStocks: new Map(),
 }
@@ -396,6 +401,19 @@ export async function loadHolders(): Promise<HoldersIndex> {
     }
     const data = await fetchJson<HoldersIndex>(SOURCES[MODE].holders())
     cache.holders = data
+    return data
+}
+
+/** 題材股的籌碼訊號回測與題材輪動，每週更新一次 */
+export async function loadHoldersAnalysis(): Promise<HoldersAnalysis> {
+    if (cache.holdersAnalysis) {
+        return cache.holdersAnalysis
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<HoldersAnalysis>(SOURCES[MODE].holdersAnalysis())
+    cache.holdersAnalysis = data
     return data
 }
 
