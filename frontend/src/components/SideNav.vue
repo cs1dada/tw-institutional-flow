@@ -26,21 +26,20 @@ interface NavItem {
     quoteOnly?: boolean
     /** 永豐行情：只在本機模式且後端有設定 Shioaji 金鑰時顯示 */
     sinoOnly?: boolean
+    /** 底下有子頁：網址以 to 開頭就算在這個頁籤裡 */
+    prefix?: boolean
 }
 
 const ITEMS: NavItem[] = [
     { to: "/", label: "類股資金流向", desc: "三大法人買賣超" },
-    { to: "/etf", label: "主動式 ETF", desc: "持股與資金動向" },
-    { to: "/daily", label: "主動式 ETF 每日榜單", desc: "被買最兇、被賣最重、最擁擠" },
-    { to: "/reports", label: "主動式 ETF 日報", desc: "訊號強度、族群輪動、誰出手最準" },
-    { to: "/trend", label: "主動式 ETF 累積趨勢", desc: "跨週比較：默默加碼、默默減碼" },
+    { to: "/etf", label: "主動式 ETF", desc: "持股與資金動向", prefix: true },
     { to: "/intraday", label: "盤中觀察", desc: "類股即時強弱", apiOnly: true },
-    { to: "/quote", label: "即時行情", desc: "富果：微台、大盤與個股", quoteOnly: true },
-    { to: "/sino", label: "永豐行情", desc: "Shioaji：大台、大盤與個股", sinoOnly: true },
     { to: "/index", label: "大盤指數", desc: "K 線、法人、融資與 VIX" },
     { to: "/themes", label: "題材分類", desc: "題材、環節與個股" },
     { to: "/valuation", label: "估值趨勢矩陣", desc: "前瞻本益比 × 均線走勢" },
     { to: "/holders", label: "籌碼分布", desc: "集保股權分散：大戶與散戶 (每週)" },
+    { to: "/quote", label: "即時行情", desc: "富果：微台、大盤與個股", quoteOnly: true },
+    { to: "/sino", label: "永豐行情", desc: "Shioaji：大台、大盤與個股", sinoOnly: true },
 ]
 
 const intradayEnabled = !isStatic && window.APP_INTRADAY === "on"
@@ -80,6 +79,17 @@ function onItemClick(isActive: boolean, navigate: () => void) {
         return
     }
     navigate()
+}
+
+/**
+ * 有子頁的頁籤不用 RouterLink 內建的 isActive 判斷：它只認導向後的那個子頁，
+ * 切到其他子頁時頁籤會失去選取狀態
+ */
+function isItemActive(item: NavItem, linkActive: boolean): boolean {
+    if (!item.prefix) {
+        return linkActive
+    }
+    return route.path === item.to || route.path.startsWith(`${item.to}/`)
 }
 
 let observer: MutationObserver | null = null
@@ -140,7 +150,12 @@ function updateCurrent() {
 }
 
 function jump(id: string) {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
+    // 第一個區塊直接回到頁面最上方，連同標題與日期、窗口等控制列一起顯示，和剛進入頁面時相同
+    if (id === sections.value[0]?.id) {
+        window.scrollTo({ top: 0, behavior: "smooth" })
+    } else {
+        document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
     current.value = id
 }
 
@@ -202,20 +217,23 @@ watch(
                 <button
                     type="button"
                     class="nav-item"
-                    :class="{ 'is-active': isActive, 'has-sections': isActive && sections.length }"
-                    :aria-expanded="isActive && sections.length ? !collapsed : undefined"
-                    @click="onItemClick(isActive, navigate)"
+                    :class="{
+                        'is-active': isItemActive(item, isActive),
+                        'has-sections': isItemActive(item, isActive) && sections.length,
+                    }"
+                    :aria-expanded="isItemActive(item, isActive) && sections.length ? !collapsed : undefined"
+                    @click="onItemClick(isItemActive(item, isActive), navigate)"
                 >
                     <span class="nav-label">{{ item.label }}</span>
                     <span class="nav-desc">{{ item.desc }}</span>
                     <span
-                        v-if="isActive && sections.length"
+                        v-if="isItemActive(item, isActive) && sections.length"
                         class="nav-toggle"
                         :class="{ 'is-collapsed': collapsed }"
                         aria-hidden="true"
                     />
                 </button>
-                <div v-if="isActive && sections.length && !collapsed" class="sub-nav">
+                <div v-if="isItemActive(item, isActive) && sections.length && !collapsed" class="sub-nav">
                     <button
                         v-for="section in sections"
                         :key="section.id"

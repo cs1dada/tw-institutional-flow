@@ -10,6 +10,7 @@ import SinoQuoteView from "@/views/SinoQuoteView.vue"
 import ThemesView from "@/views/ThemesView.vue"
 import ValuationView from "@/views/ValuationView.vue"
 import EtfTrendView from "@/views/EtfTrendView.vue"
+import EtfHubView from "@/views/EtfHubView.vue"
 import EtfView from "@/views/EtfView.vue"
 import HoldersView from "@/views/HoldersView.vue"
 
@@ -21,10 +22,22 @@ export const router = createRouter({
     history: createWebHashHistory(),
     routes: [
         { path: "/", component: IndustryFlowView },
-        { path: "/etf", component: EtfView },
-        { path: "/daily", component: DailyView },
-        { path: "/reports", component: ReportView },
-        { path: "/trend", component: EtfTrendView },
+        {
+            // 主動式 ETF 四個子頁共用一個外框，頂端用分頁列切換
+            path: "/etf",
+            component: EtfHubView,
+            children: [
+                { path: "", redirect: "/etf/overview" },
+                { path: "overview", component: EtfView },
+                { path: "daily", component: DailyView },
+                { path: "reports", component: ReportView },
+                { path: "trend", component: EtfTrendView },
+            ],
+        },
+        // 舊網址導向新位置，已存的書籤與 PWA 捷徑才不會失效
+        { path: "/daily", redirect: "/etf/daily" },
+        { path: "/reports", redirect: "/etf/reports" },
+        { path: "/trend", redirect: "/etf/trend" },
         { path: "/intraday", component: IntradayView },
         { path: "/quote", component: QuoteView },
         { path: "/sino", component: SinoQuoteView },
