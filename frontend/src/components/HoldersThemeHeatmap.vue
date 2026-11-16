@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 題材輪動熱力圖：橫軸是週，縱軸是題材，格子是該題材個股千張大戶比例的平均變化。
+ * 題材輪動熱力圖：橫軸是週，縱軸是題材，格子是該題材個股大戶比例 (門檻依股價調整)的平均變化。
  *
  * 紅色代表大戶在收、綠色代表大戶在賣，顏色越深變化越大。
  * period 跟著頁面上方的比較期間：1 週畫單週變化，4 週、12 週畫「到這週為止」的累計。
@@ -12,7 +12,7 @@ import VChart from "vue-echarts"
 
 import type { HoldersAnalysis } from "@/types"
 import { formatDate, signed } from "@/utils/format"
-import { baseTooltip, buyColor, colors, sellColor } from "@/utils/theme"
+import { baseTooltip, buyColor, colors, mix, sellColor } from "@/utils/theme"
 
 const props = withDefaults(defineProps<{
     heatmap: HoldersAnalysis["heatmap"]
@@ -28,7 +28,7 @@ const STEPS: Record<number, [number, number, number]> = {
 }
 
 /**
- * 每格的數值：k 週內單週平均變化的合計，約等於這段期間千張大戶比例的平均變化。
+ * 每格的數值：k 週內單週平均變化的合計，約等於這段期間大戶比例的平均變化。
  * 這 k 週要每週都有資料才計算，否則畫成無資料，避免缺週造成的偏差。
  */
 function rolling(values: (number | null)[], k: number): (number | null)[] {
@@ -48,19 +48,6 @@ function rolling(values: (number | null)[], k: number): (number | null)[] {
 }
 
 const emit = defineEmits<{ select: [date: string] }>()
-
-/** #rrggbb 依比例混入底色，產生同一色系的深淺 */
-function mix(color: string, base: string, ratio: number): string {
-    const parse = (hex: string) => {
-        const value = hex.replace("#", "")
-        const full = value.length === 3 ? value.split("").map((c) => c + c).join("") : value
-        return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16))
-    }
-    const a = parse(color)
-    const b = parse(base)
-    const rgb = a.map((v, i) => Math.round(v * ratio + b[i] * (1 - ratio)))
-    return `rgb(${rgb.join(",")})`
-}
 
 const ROW_HEIGHT = 22
 
@@ -98,9 +85,9 @@ const option = computed(() => {
                 return [
                     `<strong>${theme.name}</strong>`,
                     k === 1
-                        ? `${formatDate(weeks[x])}　千張大戶平均 ${signed(value as number)} 百分點`
+                        ? `${formatDate(weeks[x])}　大戶平均 ${signed(value as number)} 百分點`
                         : `${formatDate(weeks[x - k + 1])} ~ ${formatDate(weeks[x])}`,
-                    ...(k === 1 ? [] : [`千張大戶平均 ${signed(value as number)} 百分點 (${span})`]),
+                    ...(k === 1 ? [] : [`大戶平均 ${signed(value as number)} 百分點 (${span})`]),
                     `${theme.counts[x]} 檔平均`,
                 ].join("<br>")
             },

@@ -87,3 +87,16 @@ export function baseTooltip() {
         extraCssText: "box-shadow: 0 2px 8px rgba(0,0,0,0.12); border-radius: 6px;",
     }
 }
+
+/** #rrggbb 依比例混入底色，產生同一色系的深淺 */
+export function mix(color: string, base: string, ratio: number): string {
+    const parse = (hex: string) => {
+        const value = hex.replace("#", "")
+        const full = value.length === 3 ? value.split("").map((c) => c + c).join("") : value
+        return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16))
+    }
+    const a = parse(color)
+    const b = parse(base)
+    const rgb = a.map((v, i) => Math.round(v * ratio + b[i] * (1 - ratio)))
+    return `rgb(${rgb.join(",")})`
+}

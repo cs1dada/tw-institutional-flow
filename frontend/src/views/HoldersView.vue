@@ -226,9 +226,9 @@ const industryRows = computed<IndustryRow[]>(() => {
         .sort((a, b) => b.bigDiff - a.bigDiff)
 })
 
-const showAllIndustries = ref(false)
+const showAllIndustries = ref(true)
 
-/** 大戶在收產業長條圖：預設僅顯示前 5 名，可展開全部 */
+/** 大戶在收產業長條圖：預設顯示全部產業，可收合為前 5 名 */
 const displayIndustryRows = computed(() => {
     if (showAllIndustries.value) {
         return industryRows.value
@@ -844,9 +844,13 @@ onMounted(async () => {
             <div class="panel-head">
                 <h2>題材輪動</h2>
                 <p class="panel-note">
-                    各題材個股的千張大戶比例平均變化 ({{ period === 1 ? "單週" : `到該週為止的 ${period} 週合計` }})，紅色是大戶在收、綠色是在賣。
+                    各題材個股的大戶比例平均變化 ({{ period === 1 ? "單週" : `到該週為止的 ${period} 週合計` }})，紅色是大戶在收、綠色是在賣。
                     橫著看一列，連續同色代表大戶持續收或賣；上下對照同一段時間，一個題材由紅轉綠、另一個由綠轉紅，就是大戶從前者移到後者。
                     單週格子雜訊大，切到上方的 4 週比較容易看出輪動。點一下格子會切到那一週的排行。
+                    <br>
+                    這個區塊的大戶門檻依股價調整，約持股 4 億元以上算大戶：股價 1000 元以上 400 張、667~1000 元 600 張、
+                    500~667 元 800 張、500 元以下維持 1000 張。高價股用千張當門檻，持股好幾億的股東也會被算成小股東。
+                    頁面上其他區塊 (個股排行、訊號、回測) 仍以千張為門檻。
                 </p>
             </div>
             <HoldersThemeFlowChart

@@ -1072,7 +1072,16 @@ export interface HoldersAnalysis {
     }
     heatmap: {
         weeks: string[]
-        themes: { id: string; name: string; values: (number | null)[]; counts: number[] }[]
+        themes: {
+            id: string
+            name: string
+            values: (number | null)[]
+            counts: number[]
+            /** 千張大戶增減持股的推估金額 (億元)；舊版匯出的檔案沒有這個欄位 */
+            amounts?: (number | null)[]
+            /** 題材總市值 (億元)，用來換算佔類股市值的比例；舊版匯出的檔案沒有這個欄位 */
+            caps?: (number | null)[]
+        }[]
     }
 }
 

@@ -49,6 +49,17 @@ LEVEL_LABELS = {
 }
 BIG_LEVEL = 15
 BIG400_LEVELS = range(12, 16)
+
+# 題材輪動用的大戶門檻依股價調整：千張的門檻在高價股代表的金額太大，
+# 持股好幾億的股東仍被算成千張以下，因此改用「持股約 4 億元以上」當大戶。
+# 集保只分到 400 / 600 / 800 / 1000 張這幾級，門檻只能從中挑，
+# 股價 500 元以下的股票 1000 張就不到 5 億，維持千張。
+# (股價下限, 門檻起始級距)，由高價到低價依序比對
+ADJ_BIG_TIERS = (
+    (1000, 12),  # 400 張以上
+    (4e5 / 600, 13),  # 600 張以上，約 667 元
+    (500, 14),  # 800 張以上
+)
 SMALL_LEVELS = range(1, 9)
 TOTAL_LEVEL = 17
 
@@ -223,9 +234,12 @@ class History:
             big = lv.get(BIG_LEVEL, (0, 0, 0.0))
             self.data.setdefault(code, {})[date] = {
                 "holders": total[0],
+                "shares": total[1],
                 "big_pct": big[2],
                 "big_shares": big[1],
                 "big400_pct": sum(lv.get(i, (0, 0, 0.0))[2] for i in BIG400_LEVELS),
+                # 第 12~15 級各自的 (股數, 比例)，依股價調整大戶門檻時使用
+                "levels": {i: (lv.get(i, (0, 0, 0.0))[1], lv.get(i, (0, 0, 0.0))[2]) for i in BIG400_LEVELS},
             }
         self._closes = {}
         self._inst = {}
@@ -272,6 +286,35 @@ class History:
         if before is None or date not in series or before not in series:
             return None
         return round(series[date]["big_pct"] - series[before]["big_pct"], 2)
+
+    def adj_level(self, code, date):
+        """依當週收盤決定大戶門檻的起始級距，見 ADJ_BIG_TIERS；缺收盤時用千張"""
+        close = self.closes(date)[1].get(code)
+        for floor, level in ADJ_BIG_TIERS:
+            if close and close >= floor:
+                return level
+        return BIG_LEVEL
+
+    def adj_big(self, code, date, level):
+        """第 level 級以上的 (股數, 比例)"""
+        levels = self.data[code][date]["levels"]
+        return (
+            sum(levels[i][0] for i in range(level, BIG_LEVEL + 1)),
+            sum(levels[i][1] for i in range(level, BIG_LEVEL + 1)),
+        )
+
+    def adj_change(self, code, date):
+        """依股價調整門檻後，大戶在一週內的 (股數變化, 比例變化)，缺任一週時回傳 None。
+
+        門檻以本週收盤決定，前後兩週用同一個門檻，股價跨過分界時才不會讓比例跳動
+        """
+        before = self.back(date, 1)
+        series = self.data.get(code, {})
+        if before is None or date not in series or before not in series:
+            return None
+        level = self.adj_level(code, date)
+        now, prev = self.adj_big(code, date, level), self.adj_big(code, before, level)
+        return now[0] - prev[0], round(now[1] - prev[1], 2)
 
     def holders_pct(self, code, date, k=1):
         before = self.back(date, k)
@@ -497,19 +540,78 @@ def _backtest(history, codes):
     }
 
 
+# 總股數一週內變動超過這個比例，視為股本變動 (分割、增減資)，大戶股數的增減不是實際買賣
+SHARE_CHANGE_LIMIT = 0.05
+
+
+def _big_amount(history, code, date):
+    """大戶 (依股價調整門檻) 持股在一週內增減的推估金額 (元)：持股數變化 × 當週收盤。
+
+    缺資料或遇到股本變動的週次回傳 None
+    """
+    before = history.back(date, 1)
+    series = history.data.get(code, {})
+    close = history.closes(date)[1].get(code)
+    change = history.adj_change(code, date)
+    if change is None or not close:
+        return None
+    now, prev = series[date], series[before]
+    if not prev["shares"] or abs(now["shares"] / prev["shares"] - 1) > SHARE_CHANGE_LIMIT:
+        return None
+    return change[0] * close
+
+
+def _market_cap(history, code, date):
+    """當週總市值 (元)：總股數 × 當週收盤，缺資料回傳 None"""
+    row = history.data.get(code, {}).get(date)
+    close = history.closes(date)[1].get(code)
+    if not row or not row["shares"] or not close:
+        return None
+    return row["shares"] * close
+
+
 def _heatmap(history, themes):
-    """各題材每週的千張大戶比例平均變化，看大戶在題材之間的輪動"""
+    """各題材每週的大戶比例平均變化，看大戶在題材之間的輪動。
+
+    大戶門檻依股價調整 (見 ADJ_BIG_TIERS)，不是固定千張。
+
+    amounts 為大戶增減持股的推估金額 (億元)，用來畫題材之間的資金流向。
+    caps 為題材的總市值 (億元)，用來把金額換算成佔類股市值的比例，大小不同的題材才能互相比較。
+    一檔股票可能同時屬於多個題材，金額與市值都平均分給各題材，加總起來才不會重複計算。
+    """
     dates = [d for d in history.weeks if history.back(d, 1)]
+    theme_count = {}
+    for theme in themes["themes"]:
+        for code in {s["code"] for seg in theme["segments"] for s in seg["stocks"]}:
+            theme_count[code] = theme_count.get(code, 0) + 1
     result = []
     for theme in themes["themes"]:
         codes = {s["code"] for seg in theme["segments"] for s in seg["stocks"]}
         values = []
         counts = []
+        amounts = []
+        caps = []
         for date in dates:
-            diffs = [d for d in (history.big_diff(code, date) for code in codes) if d is not None]
+            changes = [history.adj_change(code, date) for code in codes]
+            diffs = [c[1] for c in changes if c is not None]
             values.append(round(sum(diffs) / len(diffs), 2) if diffs else None)
             counts.append(len(diffs))
-        result.append({"id": theme["id"], "name": theme["name"], "values": values, "counts": counts})
+            parts = [
+                a / theme_count[code]
+                for code in codes
+                if (a := _big_amount(history, code, date)) is not None
+            ]
+            amounts.append(round(sum(parts) / 1e8, 2) if parts else None)
+            cap_parts = [
+                c / theme_count[code]
+                for code in codes
+                if (c := _market_cap(history, code, date)) is not None
+            ]
+            caps.append(round(sum(cap_parts) / 1e8, 1) if cap_parts else None)
+        result.append({
+            "id": theme["id"], "name": theme["name"], "values": values, "counts": counts,
+            "amounts": amounts, "caps": caps,
+        })
     return {"weeks": dates, "themes": result}
 
 

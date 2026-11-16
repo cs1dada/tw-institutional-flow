@@ -21,6 +21,7 @@ import {
     LegendComponent,
     MarkAreaComponent,
     MarkLineComponent,
+    MarkPointComponent,
     TitleComponent,
     TooltipComponent,
     VisualMapPiecewiseComponent,
@@ -48,6 +49,8 @@ use([
     // 共識價帶與參考線
     MarkAreaComponent,
     MarkLineComponent,
+    // 題材趨勢線的峰值標記
+    MarkPointComponent,
     // 多格圖表各自的標題 (大盤籌碼圖)
     TitleComponent,
     // 依數值分段上色的線 (維持率與 VIX 的分區)，也用於熱力圖的分段色階
