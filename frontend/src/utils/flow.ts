@@ -30,8 +30,10 @@ export const LARGE_INDUSTRIES = 6
 export const LARGE_TOP_STOCKS = 10
 /** 其餘區塊切分的個股檔數，避免切得太碎 */
 export const SMALL_TOP_STOCKS = 5
-/** 只對資金規模最大的前幾個類股切分個股 */
+/** 資金規模前幾大以外的類股，區塊較小只切這幾檔 */
 export const SPLIT_INDUSTRIES = 14
+/** 每個類股至少切出的個股檔數 (同方向個股不足時有幾檔切幾檔) */
+export const MIN_TOP_STOCKS = 3
 /** 類股 tooltip 內列出的個股檔數 */
 export const TOOLTIP_STOCKS = 5
 /** 「其他」格子最多佔類股區塊面積的比例 */
@@ -210,15 +212,19 @@ export function limitChildren(row: IndustryFlow, limit: number | undefined): Flo
     ]
 }
 
-/** 各類股在 treemap 中要切出幾檔個股 */
+/**
+ * 各類股在 treemap 中要切出幾檔個股：前 LARGE_INDUSTRIES 大切 LARGE_TOP_STOCKS 檔，
+ * 到 SPLIT_INDUSTRIES 為止切 SMALL_TOP_STOCKS 檔，其餘每個類股至少切 MIN_TOP_STOCKS 檔
+ */
 export function splitLimits(items: IndustryFlow[]): Record<string, number> {
     const limits: Record<string, number> = {}
     items
         .slice()
         .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
-        .slice(0, SPLIT_INDUSTRIES)
         .forEach((row, index) => {
-            limits[row.industry] = index < LARGE_INDUSTRIES ? LARGE_TOP_STOCKS : SMALL_TOP_STOCKS
+            limits[row.industry] = index < LARGE_INDUSTRIES
+                ? LARGE_TOP_STOCKS
+                : index < SPLIT_INDUSTRIES ? SMALL_TOP_STOCKS : MIN_TOP_STOCKS
         })
     return limits
 }

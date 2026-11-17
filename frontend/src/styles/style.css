@@ -682,3 +682,26 @@ h2 {
 section[data-nav] {
     scroll-margin-top: 16px;
 }
+
+/* 類股資金分布：漲跌幅色階圖例 */
+.change-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    margin: 0 0 8px;
+    font-size: 11px;
+}
+
+.change-legend-step {
+    min-width: 36px;
+    padding: 2px 4px;
+    color: #ffffff;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.change-legend-end {
+    padding: 0 6px;
+    color: var(--text-muted);
+}

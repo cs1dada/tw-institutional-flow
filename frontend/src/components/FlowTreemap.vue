@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 通用 treemap：面積表示金額規模，顏色只表示買賣方向。
+ * 通用 treemap：面積表示金額規模，顏色依 colorBy 表示買賣方向或個股漲跌幅。
  * 類股層級與下鑽後的個股層級共用同一份繪製邏輯。
  *
  * childrenOf 有回傳子項時，類股區塊內會再依個股金額切分。
@@ -12,7 +12,7 @@ import VChart from "vue-echarts"
 
 import { OTHER_MAX_RATIO } from "@/utils/flow"
 import { signedPct, toYi } from "@/utils/format"
-import { baseTooltip, colors, polarityColor } from "@/utils/theme"
+import { baseTooltip, changeColor, colors, FLAT_COLOR, polarityColor } from "@/utils/theme"
 
 /** 只要求有金額，其餘欄位由呼叫端的 nameOf / tooltip 自行解讀 */
 interface Row {
@@ -40,7 +40,77 @@ const props = defineProps<{
     digits?: number
     /** 圖表高度，未指定則由 CSS 決定 */
     height?: string
+    /**
+     * 上色依據：flow 為買賣超方向，change 為當日漲跌幅。
+     * 類股區塊本身沒有漲跌幅，change 模式下以其個股的金額加權漲跌幅上色；
+     * 「其他」合併項為灰色。
+     */
+    colorBy?: "flow" | "change"
+    /**
+     * 面積依據：amount 為買賣超金額比例；tier 依金額分級 (AREA_TIERS)，
+     * 同級同面積，避免台積電這類量體極大的個股吃掉整張圖。
+     */
+    areaBy?: "amount" | "tier"
 }>()
+
+/**
+ * 分級面積的節點：金額 (億) 與對應的面積權重，由小到大。
+ * 每一級的權重差 1，級內依金額線性內插，因此同級之間仍保留大小差異；
+ * 最後一個節點以上封頂，台積電這類量體最多只有最小區塊的 6 倍。
+ */
+const AREA_TIERS: [yi: number, weight: number][] = [
+    [0, 1],
+    [10, 2],
+    [25, 3],
+    [50, 4],
+    [100, 5],
+    [300, 6],
+]
+
+function areaOf(amount: number): number {
+    const abs = Math.abs(amount)
+    if (props.areaBy !== "tier") {
+        return abs
+    }
+    const yi = abs / 1e8
+    for (let i = 1; i < AREA_TIERS.length; i++) {
+        const [hiYi, hiW] = AREA_TIERS[i]
+        if (yi < hiYi) {
+            const [loYi, loW] = AREA_TIERS[i - 1]
+            return loW + ((yi - loYi) / (hiYi - loYi)) * (hiW - loW)
+        }
+    }
+    return AREA_TIERS[AREA_TIERS.length - 1][1]
+}
+
+/** 類股區塊的漲跌幅：以個股買賣超金額絕對值加權，沒有個股資料時回傳 null */
+function weightedChange(node: any): number | null {
+    let weight = 0
+    let sum = 0
+    for (const kid of node.children ?? []) {
+        if (kid.is_other || kid.change_pct === null || kid.change_pct === undefined) {
+            continue
+        }
+        const w = Math.abs(kid.amount)
+        weight += w
+        sum += kid.change_pct * w
+    }
+    return weight > 0 ? sum / weight : null
+}
+
+function nodeColor(node: any): string {
+    if (props.colorBy === "change") {
+        if (node.is_other) {
+            return FLAT_COLOR
+        }
+        const pct = node.change_pct ?? weightedChange(node)
+        const color = changeColor(pct)
+        if (color) {
+            return color
+        }
+    }
+    return polarityColor(node.amount)
+}
 
 const emit = defineEmits<{ select: [row: any] }>()
 
@@ -52,12 +122,12 @@ const TITLE_MIN_WIDTH = 74
 const TITLE_MIN_HEIGHT = 48
 
 /** 母項標題的內容，只有切分成兩層時才需要 */
-const titleInfo = ref<Record<string, { name: string; amount: string }>>({})
+const titleInfo = ref<Record<string, { name: string }>>({})
 
 const option = computed(() => {
     const c = colors()
     const digits = props.digits
-    const info: Record<string, { name: string; amount: string }> = {}
+    const info: Record<string, { name: string }> = {}
 
     const data = props.rows
         .filter((row) => Math.abs(row.amount) > 0)
@@ -65,12 +135,12 @@ const option = computed(() => {
             const name = props.nameOf(row)
             const node: Record<string, unknown> = {
                 name,
-                value: Math.abs(row.amount),
+                value: areaOf(row.amount),
                 amount: row.amount,
                 detail: row,
                 lines: props.linesOf ? props.linesOf(row) : null,
                 itemStyle: {
-                    color: polarityColor(row.amount),
+                    color: nodeColor(row),
                     borderColor: c.surface,
                     borderWidth: 2,
                     gapWidth: 2,
@@ -79,17 +149,17 @@ const option = computed(() => {
 
             const kids = props.childrenOf ? props.childrenOf(row) : null
             if (kids?.length) {
-                // 子項面積正規化，使其加總等於母項，母項區塊仍代表類股淨額。
+                // 子項面積正規化，使其加總等於母項，母項區塊仍代表類股淨額 (分級模式下子項也分級)。
                 // 「其他」常常大到蓋過具名個股，因此設面積上限，
                 // 超過的部分把版面讓給前幾大個股 (tooltip 仍顯示真實金額)。
-                const parentAbs = Math.abs(row.amount)
+                const parentAbs = areaOf(row.amount)
                 let namedSum = 0
                 let otherSum = 0
                 for (const kid of kids) {
                     if (kid.is_other) {
-                        otherSum += Math.abs(kid.amount)
+                        otherSum += areaOf(kid.amount)
                     } else {
-                        namedSum += Math.abs(kid.amount)
+                        namedSum += areaOf(kid.amount)
                     }
                 }
                 const total = namedSum + otherSum
@@ -101,12 +171,12 @@ const option = computed(() => {
                     otherScale = (parentAbs * OTHER_MAX_RATIO) / otherSum
                     namedScale = (parentAbs * (1 - OTHER_MAX_RATIO)) / namedSum
                 }
-                info[name] = { name, amount: `${toYi(row.amount, digits)} 億` }
+                info[name] = { name }
                 node.children = kids.map((kid) => {
                     const scale = kid.is_other ? otherScale : namedScale
                     return {
                         name: props.childNameOf ? props.childNameOf(kid) : String(kid.name),
-                        value: Math.abs(kid.amount) * scale,
+                        value: areaOf(kid.amount) * scale,
                         amount: kid.amount,
                         detail: {
                             industry: (row as any).industry,
@@ -116,7 +186,7 @@ const option = computed(() => {
                         // 上緣要留給類股標題，個股文字往下讓出同樣高度
                         label: { padding: [TITLE_BAR_HEIGHT + 2, 0, 0, 0] },
                         itemStyle: {
-                            color: polarityColor(kid.amount),
+                            color: nodeColor(kid),
                             borderColor: "rgba(255, 255, 255, 0.55)",
                             borderWidth: 1,
                             gapWidth: 1,
@@ -158,8 +228,11 @@ const option = computed(() => {
                     overflow: "truncate",
                     formatter: (params: any) => {
                         let text = `{name|${params.name}}\n{value|${toYi(params.data.amount, digits)} 億}`
-                        // 個股節點附上當日漲跌幅，類股與「其他」沒有這個欄位
-                        const change = params.data.detail?.change_pct
+                        // 個股節點附上當日漲跌幅；類股區塊在漲跌幅上色時附上加權漲跌幅，
+                        // 否則沒切出個股的區塊只看得到買賣超金額，看不出顏色從何而來
+                        const detail = params.data.detail
+                        const change = detail?.change_pct
+                            ?? (props.colorBy === "change" && detail && !detail.is_other ? weightedChange(detail) : null)
                         if (change !== null && change !== undefined) {
                             text += `　{value|${signedPct(change, 1)}}`
                         }
@@ -180,19 +253,6 @@ const option = computed(() => {
         ],
     }
 })
-
-let measureCtx: CanvasRenderingContext2D | null = null
-
-/** 量測標題文字的實際像素寬度，字體需與 .tm-title 的樣式一致 */
-function measureTitle(text: string): number {
-    if (!measureCtx) {
-        measureCtx = document.createElement("canvas").getContext("2d")
-        if (measureCtx) {
-            measureCtx.font = '600 12px "Noto Sans TC", "Microsoft JhengHei", sans-serif'
-        }
-    }
-    return measureCtx?.measureText(text).width ?? 0
-}
 
 /** 依 treemap 實際版面，把母項 (類股) 名稱疊在區塊上緣 */
 function drawTitles() {
@@ -223,9 +283,8 @@ function drawTitles() {
         }
         const el = document.createElement("div")
         el.className = "tm-title"
-        // 寬度不足以完整顯示金額時只留類股名，避免出現「-28.」這種半截數字
-        const full = `${title.name}　${title.amount}`
-        el.textContent = measureTitle(full) <= layout.width - 16 ? full : title.name
+        // 標題只放類股名，淨額會和內部個股的金額混在一起而難以閱讀，改由 tooltip 呈現
+        el.textContent = title.name
         el.style.left = `${layout.x + 2}px`
         el.style.top = `${layout.y + 2}px`
         el.style.width = `${layout.width - 4}px`

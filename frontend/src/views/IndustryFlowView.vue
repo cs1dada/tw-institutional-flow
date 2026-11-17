@@ -26,9 +26,11 @@ import {
     INVESTOR_LABELS,
     LARGE_INDUSTRIES,
     LARGE_TOP_STOCKS,
+    MIN_TOP_STOCKS,
     MARKET_LABELS,
     OTHER_MAX_RATIO,
     SMALL_TOP_STOCKS,
+    SPLIT_INDUSTRIES,
     TOOLTIP_STOCKS,
     TREND_DAYS,
     expandStocks,
@@ -41,7 +43,7 @@ import {
 } from "@/utils/flow"
 import { themeFlow, themeStocks, themeStreak } from "@/utils/themeFlow"
 import { formatDate, signedPct, toYi } from "@/utils/format"
-import { colors, cvdMode } from "@/utils/theme"
+import { changeLegend, colors, cvdMode } from "@/utils/theme"
 
 /** 分組維度：產業別或題材分類 */
 type GroupMode = "industry" | "theme"
@@ -54,9 +56,15 @@ const dates = ref<DateItem[]>([])
 const dateMeta = ref<Record<string, DateItem>>({})
 const selectedDate = ref<string>("")
 const investor = ref<Investor>("all")
-const groupMode = ref<GroupMode>("industry")
+const groupMode = ref<GroupMode>("theme")
 const includeEtf = ref(false)
 const showStocks = ref(true)
+/** treemap 的上色依據，預設看漲跌幅；面積始終是買賣超金額 */
+const colorBy = ref<"change" | "flow">("change")
+/** treemap 面積依據，預設分級，避免台積電一檔佔掉大半版面 */
+const areaBy = ref<"tier" | "amount">("tier")
+/** 漲跌幅色階圖例，色盲模式切換時跟著變 */
+const changeSteps = computed(() => changeLegend())
 const drill = ref<string | null>(null)
 const selected = ref<string | null>(null)
 
@@ -114,21 +122,28 @@ const treemapTitle = computed(() =>
 )
 
 const treemapNote = computed(() => {
+    const flowLegend = `<span class="swatch swatch-buy"></span>買超　<span class="swatch swatch-sell"></span>賣超`
+    const changeText = "顏色為當日漲跌幅，跌越重越深綠、漲越多越深紅（色階見下方）"
+    const byChange = colorBy.value === "change"
+    const tierNote = areaBy.value === "tier"
+        ? "（依金額分級：10 億以下、10–25、25–50、50–100、100 億以上，級內再依金額微調大小）"
+        : ""
     if (drill.value) {
-        return `面積為買賣超金額規模，<span class="swatch swatch-buy"></span>買超　`
-            + `<span class="swatch swatch-sell"></span>賣超。共 ${drillStocks.value.length} 檔，`
+        return `面積為買賣超金額規模${tierNote}，${byChange ? changeText : flowLegend}。共 ${drillStocks.value.length} 檔，`
             + `其中 ${tradedDrillStocks.value.length} 檔有買賣超。`
     }
     const coverage = isTheme.value ? "僅涵蓋題材分類表收錄的個股，一檔可同時計入多個題材。" : ""
     if (showStocks.value) {
-        return `外框面積為${unitLabel.value}買賣超淨額規模，內部依同方向個股的佔比切分：前 ${LARGE_INDUSTRIES} 大`
-            + `${unitLabel.value}切 ${LARGE_TOP_STOCKS} 檔，其餘切 ${SMALL_TOP_STOCKS} 檔，更後面的合併為右下角的「其他」`
+        return `外框面積為${unitLabel.value}買賣超淨額規模${tierNote}，內部依同方向個股的佔比切分：前 ${LARGE_INDUSTRIES} 大`
+            + `${unitLabel.value}切 ${LARGE_TOP_STOCKS} 檔，接著 ${SPLIT_INDUSTRIES - LARGE_INDUSTRIES} 個切 ${SMALL_TOP_STOCKS} 檔，其餘至少切 ${MIN_TOP_STOCKS} 檔，更後面的合併為右下角的「其他」`
             + `（面積最多佔 ${Math.round(OTHER_MAX_RATIO * 100)}%）。`
-            + `<span class="swatch swatch-buy"></span>買超　`
-            + `<span class="swatch swatch-sell"></span>賣超。點擊可下鑽至該${unitLabel.value}全部個股。${coverage}`
+            + `${byChange ? `${changeText}，「其他」為深灰色` : flowLegend}。`
+            + `點擊可下鑽至該${unitLabel.value}全部個股。${coverage}`
     }
-    return `面積為買賣超金額規模，<span class="swatch swatch-buy"></span>買超　`
-        + `<span class="swatch swatch-sell"></span>賣超。點擊${unitLabel.value}可下鑽至個股。${coverage}`
+    const unitNote = byChange
+        ? `；${changeText}，${unitLabel.value}的漲跌幅以主要個股的買賣超金額加權`
+        : `，${flowLegend}`
+    return `面積為買賣超金額規模${tierNote}${unitNote}。點擊${unitLabel.value}可下鑽至個股。${coverage}`
 })
 
 /* ===== 排行圖 ===== */
@@ -267,6 +282,11 @@ function compositionTooltip(row: FlowChild | IndustryFlow): string {
 /* ===== 互動 ===== */
 
 function enterDrill(row: IndustryFlow | StockFlow) {
+    // 已在下鑽中時點到的是個股；個股的 industry 是它自己的產業別，
+    // 題材模式下拿來當題材名稱會找不到而整頁失效，因此不再下鑽
+    if (drill.value) {
+        return
+    }
     const industry = (row as IndustryFlow).industry
     if (!industry) {
         return
@@ -339,6 +359,10 @@ onMounted(async () => {
         // 優先選資料齊全的最新交易日
         const preferred = dates.value.find((item) => item.complete) ?? dates.value[0]
         if (preferred) {
+            // 預設為題材分組，分類表要在聚合當日資料前就緒，切換分組的 watch 不會在初始值觸發
+            if (groupMode.value === "theme") {
+                await ensureThemeData()
+            }
             selectedDate.value = preferred.date
             await load(preferred.date)
         } else {
@@ -424,6 +448,46 @@ function dateLabel(item: DateItem): string {
                 </div>
             </div>
 
+            <div class="control">
+                <span class="control-label">上色依據</span>
+                <div class="tabs" role="tablist">
+                    <button
+                        v-for="opt in ([
+                            { key: 'change', label: '漲跌幅' },
+                            { key: 'flow', label: '買賣超' },
+                        ] as const)"
+                        :key="opt.key"
+                        type="button"
+                        class="tab"
+                        :class="{ 'is-active': colorBy === opt.key }"
+                        role="tab"
+                        @click="colorBy = opt.key"
+                    >
+                        {{ opt.label }}
+                    </button>
+                </div>
+            </div>
+
+            <div class="control">
+                <span class="control-label">面積</span>
+                <div class="tabs" role="tablist">
+                    <button
+                        v-for="opt in ([
+                            { key: 'tier', label: '分級' },
+                            { key: 'amount', label: '實際金額' },
+                        ] as const)"
+                        :key="opt.key"
+                        type="button"
+                        class="tab"
+                        :class="{ 'is-active': areaBy === opt.key }"
+                        role="tab"
+                        @click="areaBy = opt.key"
+                    >
+                        {{ opt.label }}
+                    </button>
+                </div>
+            </div>
+
             <label class="control control-inline">
                 <input v-model="cvdMode" type="checkbox">
                 <span>色盲友善配色</span>
@@ -451,6 +515,16 @@ function dateLabel(item: DateItem): string {
                     返回全{{ unitLabel }}
                 </button>
             </div>
+            <div v-if="colorBy === 'change'" class="change-legend" aria-label="漲跌幅色階">
+                <span class="change-legend-end">跌</span>
+                <span
+                    v-for="step in changeSteps"
+                    :key="step.label"
+                    class="change-legend-step"
+                    :style="{ background: step.color }"
+                >{{ step.label }}</span>
+                <span class="change-legend-end">漲</span>
+            </div>
             <FlowTreemap
                 :rows="treemapRows"
                 :name-of="(row: any) => (drill ? `${row.code} ${row.name}` : row.industry)"
@@ -459,6 +533,8 @@ function dateLabel(item: DateItem): string {
                 :tooltip="drill ? stockTooltip : compositionTooltip"
                 :digits="drill ? 2 : undefined"
                 :height="!drill && showStocks ? '620px' : undefined"
+                :color-by="colorBy"
+                :area-by="areaBy"
                 @select="enterDrill"
             />
         </section>

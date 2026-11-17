@@ -61,6 +61,77 @@ export function sellColor(): string {
     return cvdMode.value ? colors().sellCvd : colors().sell
 }
 
+/** 「其他」合併項的深灰色，與色階中平盤的淺灰區隔；區塊上的文字是白色，因此不用淺色的 --neutral */
+export const FLAT_COLOR = "#565a63"
+
+type Rgb = [number, number, number]
+
+/**
+ * 漲跌幅色階 (%)，參考 indusmapk 個股期熱力圖：跌越重越深綠、漲越多越深紅，平盤為灰。
+ * 介於兩階之間時線性內插，超過 ±10% 以端點色呈現。
+ */
+const CHANGE_SCALE: [pct: number, rgb: Rgb][] = [
+    [-10, [11, 74, 38]],
+    [-8, [26, 110, 58]],
+    [-6, [46, 139, 77]],
+    [-4, [79, 166, 106]],
+    [-2, [125, 191, 146]],
+    [0, [178, 186, 198]],
+    [2, [200, 158, 158]],
+    [4, [215, 114, 114]],
+    [6, [209, 52, 79]],
+    [8, [185, 28, 52]],
+    [10, [139, 11, 34]],
+]
+
+/** 色盲友善模式的跌方色階：紅綠難分辨，跌方改為深淺藍 */
+const CHANGE_SCALE_CVD_DOWN: Rgb[] = [
+    [8, 48, 107],
+    [8, 81, 156],
+    [33, 113, 181],
+    [66, 146, 198],
+    [120, 175, 214],
+]
+
+function changeScale(): [number, Rgb][] {
+    if (!cvdMode.value) {
+        return CHANGE_SCALE
+    }
+    return CHANGE_SCALE.map(([pct, rgb], i) => [pct, i < CHANGE_SCALE_CVD_DOWN.length ? CHANGE_SCALE_CVD_DOWN[i] : rgb])
+}
+
+function rgbText([r, g, b]: Rgb): string {
+    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`
+}
+
+/** 圖例用：色階上每一階的標籤與顏色 */
+export function changeLegend(): { label: string; color: string }[] {
+    return changeScale().map(([pct, rgb]) => ({
+        label: `${pct > 0 ? "+" : ""}${pct}%`,
+        color: rgbText(rgb),
+    }))
+}
+
+/** 依漲跌幅上色，無漲跌資料時回傳 null */
+export function changeColor(pct: number | null | undefined): string | null {
+    if (pct === null || pct === undefined || Number.isNaN(pct)) {
+        return null
+    }
+    const scale = changeScale()
+    if (pct <= scale[0][0]) {
+        return rgbText(scale[0][1])
+    }
+    for (let i = 1; i < scale.length; i++) {
+        const [hiPct, hi] = scale[i]
+        if (pct <= hiPct) {
+            const [loPct, lo] = scale[i - 1]
+            const t = (pct - loPct) / (hiPct - loPct)
+            return rgbText(lo.map((v, k) => v + (hi[k] - v) * t) as Rgb)
+        }
+    }
+    return rgbText(scale[scale.length - 1][1])
+}
+
 export function polarityColor(value: number): string {
     return value >= 0 ? buyColor() : sellColor()
 }
