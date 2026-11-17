@@ -527,9 +527,9 @@ function dateLabel(item: DateItem): string {
             </div>
             <FlowTreemap
                 :rows="treemapRows"
-                :name-of="(row: any) => (drill ? `${row.code} ${row.name}` : row.industry)"
+                :name-of="(row: any) => (drill ? row.name : row.industry)"
                 :children-of="!drill && showStocks ? (row: any) => limitChildren(row, limits[row.industry]) : null"
-                :child-name-of="(kid: any) => (kid.is_other ? kid.name : `${kid.code} ${kid.name}`)"
+                :child-name-of="(kid: any) => kid.name"
                 :tooltip="drill ? stockTooltip : compositionTooltip"
                 :digits="drill ? 2 : undefined"
                 :height="!drill && showStocks ? '620px' : undefined"

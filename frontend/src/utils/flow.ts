@@ -90,6 +90,15 @@ export function buildChildren(
 
     const leaders = sameDirection.slice(0, limit)
     const rest = sameDirection.slice(limit)
+    // 同方向個股不足 MIN_TOP_STOCKS 檔時 (例如塑化只有南亞一檔賣超)，
+    // 以反方向金額最大的個股補足，讓每個區塊都看得到幾檔代表股；
+    // 格子內仍標示各自真實的金額與漲跌幅
+    if (leaders.length < MIN_TOP_STOCKS) {
+        const opposite = members
+            .filter((m) => m[key] && m[key] > 0 !== amount > 0)
+            .sort((a, b) => Math.abs(b[key]) - Math.abs(a[key]))
+        leaders.push(...opposite.slice(0, MIN_TOP_STOCKS - leaders.length))
+    }
     const children: FlowChild[] = leaders.map((m) => ({
         code: m.code,
         name: m.name,
