@@ -190,9 +190,10 @@ def export_holders(conn):
         payload = holders.build_week(conn, item["date"], history)
         if payload is None:
             continue
-        # 資料庫缺了前一週時算不出週變化，可比較的檔數會變少，這時保留舊檔，不以較少的內容覆蓋
+        # 資料庫缺了前一週時算不出週變化，可比較的檔數會變少，這時保留舊檔，不以較少的內容覆蓋；
+        # 被併購或停止交易而排除的個股 (delisted) 是刻意拿掉的，比較筆數時加回去
         old = _read_json(path)
-        if old and len(old.get("rows", [])) > len(payload["rows"]):
+        if old and len(old.get("rows", [])) > len(payload["rows"]) + payload.get("delisted", 0):
             kept += 1
             continue
         week_bytes += write_json(path, payload)

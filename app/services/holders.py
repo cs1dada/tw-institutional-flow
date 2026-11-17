@@ -217,6 +217,17 @@ PERIOD_THRESHOLDS = {
 }
 
 
+# 千張大戶比例達到這個數字 (等於 100%)，代表股份已集中在少數股東手上，
+# 通常是被併購、股份轉換或停止交易 (例如富采 2026-11-13 從 39% 跳到 100% 且沒有收盤價)。
+# 這一週的大戶變化不是實際買賣，排行、產業平均、題材輪動與回測都排除
+DELISTED_BIG_PCT = 99.9
+
+
+def is_delisted(row):
+    """該週的集保資料是否屬於被併購或停止交易的情況，見 DELISTED_BIG_PCT"""
+    return row["big_pct"] >= DELISTED_BIG_PCT
+
+
 class History:
     """所有週次的彙總指標，一次載入後供逐週計算共用。
 
@@ -288,12 +299,20 @@ class History:
                 }
         return self._inst[key]
 
-    def big_diff(self, code, date, k=1):
-        """千張大戶比例在 k 週內的變化 (百分點)，缺任一週時回傳 None"""
-        before = self.back(date, k)
+    def comparable(self, code, date, before):
+        """兩個資料日都有資料，且都不是被併購或停止交易的狀態，才能比較變化"""
         series = self.data.get(code, {})
-        if before is None or date not in series or before not in series:
+        return (
+            before is not None and date in series and before in series
+            and not is_delisted(series[date]) and not is_delisted(series[before])
+        )
+
+    def big_diff(self, code, date, k=1):
+        """千張大戶比例在 k 週內的變化 (百分點)，缺任一週或無法比較時回傳 None"""
+        before = self.back(date, k)
+        if not self.comparable(code, date, before):
             return None
+        series = self.data[code]
         return round(series[date]["big_pct"] - series[before]["big_pct"], 2)
 
     def adj_level(self, code, date):
@@ -318,8 +337,7 @@ class History:
         門檻以本週收盤決定，前後兩週用同一個門檻，股價跨過分界時才不會讓比例跳動
         """
         before = self.back(date, 1)
-        series = self.data.get(code, {})
-        if before is None or date not in series or before not in series:
+        if not self.comparable(code, date, before):
             return None
         level = self.adj_level(code, date)
         now, prev = self.adj_big(code, date, level), self.adj_big(code, before, level)
@@ -327,9 +345,9 @@ class History:
 
     def holders_pct(self, code, date, k=1):
         before = self.back(date, k)
-        series = self.data.get(code, {})
-        if before is None or date not in series or before not in series or not series[before]["holders"]:
+        if not self.comparable(code, date, before) or not self.data[code][before]["holders"]:
             return None
+        series = self.data[code]
         return round((series[date]["holders"] / series[before]["holders"] - 1) * 100, 2)
 
     def price_pct(self, code, date, k):
@@ -418,12 +436,17 @@ def build_week(conn, date, history=None):
     # 沒有前一週的檔數另外記在 uncompared，頁面用來說明為什麼範圍切換後檔數沒變
     rows = []
     uncompared = 0
+    # 被併購或停止交易而排除的檔數，匯出時用來判斷筆數變少是否正常
+    delisted = 0
     for code, item in now.items():
         if code not in info:
             continue
         prev = before.get(code)
-        if prev is None:
+        # 沒有前一週，或任一週已被併購、停止交易 (大戶比例 100%)，都無法比較
+        if prev is None or is_delisted(item) or is_delisted(prev):
             uncompared += 1
+            if prev is not None:
+                delisted += 1
             continue
         close, prev_close = closes.get(code), prev_closes.get(code)
         rows.append({
@@ -446,6 +469,7 @@ def build_week(conn, date, history=None):
         "trade_date": trade_date,
         "stock_count": len(now),
         "uncompared": uncompared,
+        "delisted": delisted,
         "rows": rows,
     }
 
