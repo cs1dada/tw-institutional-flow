@@ -88,7 +88,7 @@ const weeks = ref<{ date: string; stock_count: number }[]>([])
 const selectedWeek = ref("")
 const week = ref<HoldersWeek | null>(null)
 const scope = ref<Scope>("theme")
-const period = ref<Period>(1)
+const period = ref<Period>(4)
 const board = ref<Board>("big_up")
 const keyword = ref("")
 const expanded = ref(false)
@@ -364,50 +364,200 @@ function stat(row: HoldersBacktestRow | Record<string, number | null>, key: stri
     return typeof value === "number" ? value : null
 }
 
-/** 超額達到這個百分點才算訊號有明顯差別 */
-const EXCESS_CLEAR = 2
+/** 多漲 / 少漲達到這個百分點才算訊號有明顯差別；持有越久漲跌越大，門檻跟著放寬 */
+const EXCESS_CLEAR_BY_HORIZON: Record<number, number> = { 1: 0.5, 4: 1, 12: 2 }
 /** 訊號出現次數少於這個數字時不下結論，避免幾次運氣好就被當成有效 */
 const CONCLUSION_MIN_COUNT = 100
 
+/** 回測「訊號出現後再看幾週」，預設看較長的 12 週，短期漲跌雜訊較大 */
+const btHorizon = ref(12)
+
 /**
- * 回測的白話結論，依目前的回測數字產生，資料更新後會跟著變。
+ * 目前比較期間的回測：訊號用往回 period 週的累計變化判斷，與上方排行一致。
+ * 舊版匯出的檔案只有 1 週的回測，其他期間回傳 null。
+ */
+const backtest = computed(() => {
+    const data = analysis.value
+    if (!data) {
+        return null
+    }
+    return data.backtests?.[String(period.value)] ?? (period.value === 1 ? data.backtest : null)
+})
+
+/** 實際使用的往後週數，資料沒有選定的週數時改用最後一個 */
+const btK = computed(() => {
+    const horizons = backtest.value?.horizons ?? []
+    return horizons.includes(btHorizon.value) ? btHorizon.value : (horizons[horizons.length - 1] ?? btHorizon.value)
+})
+
+/** 目前持有期間的「有明顯差別」門檻 */
+const btClear = computed(() => EXCESS_CLEAR_BY_HORIZON[btK.value] ?? 2)
+
+/** 訊號的判斷條件，依比較期間的門檻產生 */
+function signalRule(key: string): string {
+    const t = th.value
+    const span = period.value === 1 ? "單週" : `${period.value} 週內`
+    const streak = analysis.value?.thresholds.streak ?? STREAK_MIN
+    const rules: Record<string, string> = {
+        big_up: `${span}大戶比例增加 ${t.big} 個百分點以上`,
+        big_down: `${span}大戶比例減少 ${t.big} 個百分點以上`,
+        retail_in: `${span}股東人數增加 ${t.retailIn}% 以上`,
+        retail_out: `${span}股東人數減少 ${-t.retailOut}% 以上`,
+        streak_up: `大戶比例連續 ${streak} 週以上每週增加`,
+        streak_down: `大戶比例連續 ${streak} 週以上每週減少`,
+        gather: `${span}大戶比例增加 ${t.big} 個百分點以上，且股東人數沒有增加`,
+        scatter: `${span}大戶比例減少 ${t.big} 個百分點以上，且股東人數增加 1% 以上`,
+    }
+    return rules[key] ?? ""
+}
+
+interface BacktestView {
+    key: string
+    label: string
+    rule: string
+    excess: number | null
+    median: number | null
+    win: number | null
+    count: number
+    verdict: string
+    tone: string
+}
+
+/** 回測表每一列：超額、判讀與明細數字 */
+const btRows = computed<BacktestView[]>(() => {
+    const bt = backtest.value
+    if (!bt) {
+        return []
+    }
+    const k = btK.value
+    return bt.rows.map((row) => {
+        // 以畫面上顯示的一位小數判讀，避免顯示 +2.0 卻判成「沒差別」
+        const raw = stat(row, `excess_${k}w`)
+        const excess = raw === null ? null : Math.round(raw * 10) / 10
+        const count = stat(row, `count_${k}w`) ?? 0
+        let verdict = "沒差別"
+        let tone = "is-flat"
+        if (excess === null || count < CONCLUSION_MIN_COUNT) {
+            verdict = "次數太少"
+            tone = "is-few"
+        } else if (excess >= btClear.value) {
+            verdict = "比較會漲"
+            tone = "is-up"
+        } else if (excess <= -btClear.value) {
+            verdict = "比較不會漲"
+            tone = "is-down"
+        }
+        return {
+            key: row.key,
+            label: row.label,
+            rule: signalRule(row.key),
+            excess,
+            median: stat(row, `median_${k}w`),
+            win: stat(row, `win_${k}w`),
+            count,
+            verdict,
+            tone,
+        }
+    })
+})
+
+/** 長條的刻度範圍：涵蓋 0、隨便買與每個訊號的漲跌，右側 (與負數時的左側) 留一點空間 */
+const btDomain = computed(() => {
+    const values = [0, btBaseline.value?.median ?? 0, ...btRows.value.map((r) => r.median ?? 0)]
+    const lo = Math.min(...values)
+    const hi = Math.max(...values)
+    const pad = (hi - lo) * 0.08 || 1
+    return { lo: lo < 0 ? lo - pad : 0, hi: hi + pad }
+})
+
+/** 數值在長條格中的位置 (%) */
+function btPos(value: number): number {
+    const { lo, hi } = btDomain.value
+    return ((value - lo) / (hi - lo)) * 100
+}
+
+/** 長條從 0 畫到訊號的漲跌中位數 */
+function btBarStyle(median: number | null): Record<string, string> {
+    if (median === null) {
+        return { display: "none" }
+    }
+    const a = btPos(0)
+    const b = btPos(median)
+    return { left: `${Math.min(a, b)}%`, width: `${Math.abs(b - a)}%` }
+}
+
+/**
+ * 長條顏色：比隨便買好是紅、差是綠；差距在門檻內 (沒差別) 或次數太少時用淺色，完全一樣時用灰色
+ */
+function btBarClass(row: BacktestView): string[] {
+    if (row.excess === null || row.excess === 0) {
+        return ["is-flat"]
+    }
+    const side = row.excess > 0 ? "is-up" : "is-down"
+    return row.tone === "is-up" || row.tone === "is-down" ? [side] : [side, "is-light"]
+}
+
+const btZeroStyle = computed(() => ({ left: `${btPos(0)}%` }))
+
+/** 隨便買的基準線 */
+const btBaseStyle = computed(() => ({ left: `${btPos(btBaseline.value?.median ?? 0)}%` }))
+
+/** 基準線左右 ± 門檻的灰色區，長條停在裡面代表跟隨便買差不多 */
+const btBandStyle = computed(() => {
+    const base = btBaseline.value?.median ?? 0
+    const a = btPos(base - btClear.value)
+    const b = btPos(base + btClear.value)
+    return { left: `${a}%`, width: `${b - a}%` }
+})
+
+/** 對照組 (全部題材股) 的同期表現 */
+const btBaseline = computed(() => {
+    const bt = backtest.value
+    const k = btK.value
+    if (!bt) {
+        return null
+    }
+    return {
+        median: stat(bt.baseline, `median_${k}w`),
+        win: stat(bt.baseline, `win_${k}w`),
+        count: stat(bt.baseline, `count_${k}w`),
+    }
+})
+
+/**
+ * 回測的白話結論，依目前的比較期間與往後週數產生，資料更新後會跟著變。
  *
- * 以最長的期間 (12 週) 為準：先說明同期整體行情，再列出超額明顯的訊號，
- * 都不明顯時直接說單看籌碼效果不明顯。
+ * 先說明同期整體行情，再列出超額明顯的訊號，都不明顯時直接說單看籌碼效果不明顯。
  */
 const backtestConclusion = computed<string>(() => {
-    const backtest = analysis.value?.backtest
-    if (!backtest || !backtest.horizons.length) {
+    if (!btRows.value.length) {
         return ""
     }
-    const k = backtest.horizons[backtest.horizons.length - 1]
-    const base = stat(backtest.baseline, `median_${k}w`)
+    // 隨便買的漲幅已在步驟 3 顯示，結論只講哪些訊號有差別
+    const k = btK.value
     const parts: string[] = []
-    if (base !== null) {
-        const mood = base >= 5 ? "整體大漲" : base <= -5 ? "整體大跌" : "整體變化不大"
-        parts.push(`這段期間題材股${mood}，同期全部題材股 ${k} 週漲跌中位數 ${signedPct(base, 1)}。`)
-    }
-    const eligible = backtest.rows
-        .map((row) => ({ label: row.label, excess: stat(row, `excess_${k}w`), count: stat(row, `count_${k}w`) ?? 0 }))
-        .filter((row): row is { label: string; excess: number; count: number } =>
-            row.excess !== null && row.count >= CONCLUSION_MIN_COUNT)
-    const better = eligible.filter((r) => r.excess >= EXCESS_CLEAR).sort((a, b) => b.excess - a.excess).slice(0, 2)
-    const worse = eligible.filter((r) => r.excess <= -EXCESS_CLEAR).sort((a, b) => a.excess - b.excess).slice(0, 2)
+    const eligible = btRows.value.filter(
+        (r): r is BacktestView & { excess: number } => r.excess !== null && r.count >= CONCLUSION_MIN_COUNT,
+    )
+    const better = eligible.filter((r) => r.excess >= btClear.value).sort((a, b) => b.excess - a.excess).slice(0, 2)
+    const worse = eligible.filter((r) => r.excess <= -btClear.value).sort((a, b) => a.excess - b.excess).slice(0, 2)
     if (!better.length && !worse.length) {
         parts.push(
-            `各訊號和全部題材股的差距都在 ±${EXCESS_CLEAR} 個百分點以內：有沒有出現訊號，股票表現都差不多，單看籌碼選股效果不明顯。`,
+            `以 ${PERIOD_LABELS[period.value]}的訊號來看，每個訊號跟隨便買的差距都在 ±${btClear.value} 個百分點以內：有沒有出現訊號，股票表現都差不多。`,
         )
         return parts.join("")
     }
     const describe = (list: typeof better, word: string) =>
         list.map((r) => `「${r.label}」${word} ${Math.abs(r.excess).toFixed(1)} 個百分點`).join("、")
+    // 開頭固定說明是哪個比較期間的訊號、持有幾週，只有少漲的訊號時也一樣
+    const lead = `以 ${PERIOD_LABELS[period.value]}的訊號來看，出現訊號後持有 ${k} 週，`
     if (better.length) {
-        parts.push(`出現訊號後 ${k} 週，${describe(better, "比其他題材股多漲")}。`)
+        parts.push(`${lead}${describe(better, "多漲")}。`)
     }
     if (worse.length) {
-        parts.push(`${describe(worse, "比其他題材股少漲")}。`)
+        parts.push(`${better.length ? "" : lead}${describe(worse, "少漲")}。`)
     }
-    parts.push("其餘訊號的差距不明顯。")
+    parts.push("其餘訊號跟隨便買差不多。")
     return parts.join("")
 })
 
@@ -625,7 +775,7 @@ onMounted(async () => {
         </div>
 
         <div v-if="hasPrev && (comparable.length || industryRows.length)" class="charts-row">
-            <section v-if="comparable.length" class="panel holders-chart-panel" data-nav="分布圖">
+            <section v-if="comparable.length" class="panel holders-chart-panel" data-nav="籌碼流向分布">
                 <div class="panel-head">
                     <h2>籌碼流向分布</h2>
                     <p class="panel-note">
@@ -642,7 +792,7 @@ onMounted(async () => {
                 />
             </section>
 
-            <section v-if="industryRows.length" class="panel holders-chart-panel" data-nav="產業">
+            <section v-if="industryRows.length" class="panel holders-chart-panel" data-nav="大戶在收哪些產業">
                 <div class="panel-head">
                     <div class="panel-head-flex">
                         <h2>大戶在收哪些產業 {{ showAllIndustries ? "" : "(前 5 名)" }}</h2>
@@ -670,7 +820,7 @@ onMounted(async () => {
             </section>
         </div>
 
-        <section v-if="hasPrev" ref="tablePanel" class="panel" data-nav="排行">
+        <section v-if="hasPrev" ref="tablePanel" class="panel" data-nav="個股排行">
             <div class="panel-head">
                 <h2>{{ searching ? "查詢結果" : BOARD_LABELS[board] }}</h2>
                 <p class="panel-note">{{ panelNote }}</p>
@@ -842,77 +992,222 @@ onMounted(async () => {
 
         <section v-if="analysis && analysis.heatmap.weeks.length" class="panel holders-chart-panel" data-nav="題材輪動">
             <div class="panel-head">
-                <h2>題材輪動</h2>
+                <!-- 標題與比較期間放同一列，省下垂直空間，讓下方圖表不用捲動就能看到 -->
+                <div class="panel-head-flex">
+                    <h2>題材輪動</h2>
+                    <!-- 與頁面上方的比較期間是同一個設定，捲到這裡時不用再捲回頂端切換 -->
+                    <div class="control">
+                        <span class="control-label">比較期間</span>
+                        <div class="chip-row">
+                            <button
+                                v-for="(label, key) in PERIOD_LABELS"
+                                :key="key"
+                                type="button"
+                                class="chip"
+                                :class="{ 'is-active': period === Number(key) }"
+                                @click="period = Number(key) as Period"
+                            >
+                                {{ label }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
                 <p class="panel-note">
-                    各題材個股的大戶比例平均變化 ({{ period === 1 ? "單週" : `到該週為止的 ${period} 週合計` }})，紅色是大戶在收、綠色是在賣。
-                    橫著看一列，連續同色代表大戶持續收或賣；上下對照同一段時間，一個題材由紅轉綠、另一個由綠轉紅，就是大戶從前者移到後者。
-                    單週格子雜訊大，切到上方的 4 週比較容易看出輪動。點一下格子會切到那一週的排行。
-                    <br>
-                    這個區塊的大戶門檻依股價調整，約持股 4 億元以上算大戶：股價 1000 元以上 400 張、667~1000 元 600 張、
-                    500~667 元 800 張、500 元以下維持 1000 張。高價股用千張當門檻，持股好幾億的股東也會被算成小股東。
-                    頁面上其他區塊 (個股排行、訊號、回測) 仍以千張為門檻。
+                    各題材個股的大戶比例平均變化，看選定期間內大戶的錢在哪些題材之間移動。大戶門檻依股價調整 (約持股 4 億元以上)。
                 </p>
+                <details class="threshold-more panel-note">
+                    <summary>大戶門檻說明</summary>
+                    <p>
+                        題材輪動與下方熱力圖的大戶門檻依股價調整，約持股 4 億元以上算大戶：股價 1000 元以上 400 張、667~1000 元 600 張、
+                        500~667 元 800 張、500 元以下維持 1000 張。高價股用千張當門檻，持股好幾億的股東也會被算成小股東。
+                        頁面上其他區塊 (個股排行、訊號、回測) 仍以千張為門檻。
+                    </p>
+                </details>
             </div>
             <HoldersThemeFlowChart
                 :heatmap="analysis.heatmap"
                 :period="period"
                 :selected-date="selectedWeek || week?.date"
             />
+        </section>
+
+        <section v-if="analysis && analysis.heatmap.weeks.length" class="panel holders-chart-panel" data-nav="題材熱力圖">
+            <div class="panel-head">
+                <h2>題材熱力圖 (整年)</h2>
+                <p class="panel-note">
+                    每一列是一個題材，每一欄是一週，格子是大戶比例平均變化 ({{ period === 1 ? "單週" : `到該週為止的 ${period} 週合計` }})，紅色是大戶在收、綠色是在賣。
+                    橫著看一列，連續同色代表大戶持續收或賣；上下對照同一段時間，一個題材由紅轉綠、另一個由綠轉紅，就是大戶從前者移到後者。
+                    單週格子雜訊大，切到上方的 4 週比較容易看出輪動。點一下格子會切到那一週的排行。
+                </p>
+            </div>
             <HoldersThemeHeatmap :heatmap="analysis.heatmap" :period="period" @select="selectWeek" />
         </section>
 
-        <section v-if="analysis" class="panel holders-chart-panel" data-nav="回測">
+        <section v-if="analysis" class="panel holders-chart-panel" data-nav="這些訊號準不準">
             <div class="panel-head">
-                <h2>這些訊號準不準</h2>
+                <h2>這些訊號準不準 (回測)</h2>
                 <p class="panel-note">
-                    以 {{ formatDate(analysis.first_week) }} 到 {{ formatDate(analysis.last_week) }} 的 {{ analysis.stock_count }} 檔題材股回測：
-                    每週出現訊號的個股，之後 4 週、12 週的股價表現，和同期全部題材股相比。
+                    照個股排行的訊號買股票，會比隨便買一檔題材股賺得多嗎？
+                    用 {{ formatDate(analysis.first_week) }} ~ {{ formatDate(analysis.last_week) }} 這一年的 {{ analysis.stock_count }} 檔題材股，每一週都照下面三步驟驗證一次。
                 </p>
             </div>
-            <p v-if="backtestConclusion" class="backtest-conclusion">{{ backtestConclusion }}</p>
-            <div class="table-wrap holders-table-wrap">
-                <table class="data-table backtest-table">
-                    <thead>
-                        <tr>
-                            <th rowspan="2">訊號</th>
-                            <th v-for="k in analysis.backtest.horizons" :key="k" colspan="4" class="group-head">之後 {{ k }} 週</th>
-                        </tr>
-                        <tr>
-                            <!-- 超額放在最前面：漲跌中位數混了大盤的漲幅，超額才是訊號本身的效果 -->
-                            <template v-for="k in analysis.backtest.horizons" :key="k">
-                                <th class="num" title="訊號的漲跌中位數減去全部題材股的中位數">超額</th>
-                                <th class="num">漲跌中位數</th>
-                                <th class="num">上漲機率</th>
-                                <th class="num">次數</th>
-                            </template>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="row in analysis.backtest.rows" :key="row.key">
-                            <td>{{ row.label }}</td>
-                            <template v-for="k in analysis.backtest.horizons" :key="k">
-                                <td class="num excess" :class="polarity(stat(row, `excess_${k}w`))">{{ signed(stat(row, `excess_${k}w`), 1) }}</td>
-                                <td class="num secondary">{{ signedPct(stat(row, `median_${k}w`), 1) }}</td>
-                                <td class="num secondary">{{ stat(row, `win_${k}w`)?.toFixed(0) ?? "--" }}%</td>
-                                <td class="num secondary">{{ stat(row, `count_${k}w`)?.toLocaleString() ?? "--" }}</td>
-                            </template>
-                        </tr>
-                        <tr class="total-row">
-                            <td>全部題材股 (對照)</td>
-                            <template v-for="k in analysis.backtest.horizons" :key="k">
-                                <td class="num muted">--</td>
-                                <td class="num secondary">{{ signedPct(stat(analysis.backtest.baseline, `median_${k}w`), 1) }}</td>
-                                <td class="num secondary">{{ stat(analysis.backtest.baseline, `win_${k}w`)?.toFixed(0) ?? "--" }}%</td>
-                                <td class="num secondary">{{ stat(analysis.backtest.baseline, `count_${k}w`)?.toLocaleString() ?? "--" }}</td>
-                            </template>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+
+            <!-- 三步驟：往回看判斷訊號 → 往後看持有多久 → 跟隨便買比；兩組按鈕各放在對應的步驟裡 -->
+            <ol class="bt-steps">
+                <li class="bt-step">
+                    <div class="bt-step-head"><span class="bt-step-no">1</span>判斷有沒有訊號：往回看</div>
+                    <div class="chip-row">
+                        <button
+                            v-for="(label, key) in PERIOD_LABELS"
+                            :key="key"
+                            type="button"
+                            class="chip"
+                            :class="{ 'is-active': period === Number(key) }"
+                            @click="period = Number(key) as Period"
+                        >
+                            {{ label }}
+                        </button>
+                    </div>
+                    <p class="bt-step-note">
+                        看這段期間的籌碼變化。例如「{{ signalRule("big_up") }}」就算一次「大戶在收」。
+                        與頁面上方的比較期間是同一個設定。
+                    </p>
+                </li>
+                <li class="bt-step">
+                    <div class="bt-step-head"><span class="bt-step-no">2</span>出現訊號就買進，持有</div>
+                    <div v-if="backtest" class="chip-row">
+                        <button
+                            v-for="k in backtest.horizons"
+                            :key="k"
+                            type="button"
+                            class="chip"
+                            :class="{ 'is-active': btK === k }"
+                            @click="btHorizon = k"
+                        >
+                            {{ k }} 週
+                        </button>
+                    </div>
+                    <p class="bt-step-note">
+                        {{ btK }} 週後再看股價漲跌。{{ btK === 1 ? "只拿 1 週的漲跌受大盤與消息面影響大，參考性較低。" : "" }}
+                    </p>
+                </li>
+                <li class="bt-step">
+                    <div class="bt-step-head"><span class="bt-step-no">3</span>跟「隨便買」比</div>
+                    <div class="bt-step-value">
+                        隨便買一檔題材股持有 {{ btK }} 週：<strong>{{ signedPct(btBaseline?.median ?? null, 1) }}</strong>
+                    </div>
+                    <p class="bt-step-note">
+                        照訊號買的漲幅減掉隨便買的漲幅，就是下表的「多漲 / 少漲」(都取中位數)。
+                    </p>
+                </li>
+            </ol>
+
+            <p v-if="!backtest" class="notice">目前的資料沒有 {{ PERIOD_LABELS[period] }}的回測，請重新產生籌碼分析資料。</p>
+            <template v-else>
+                <p v-if="backtestConclusion" class="backtest-conclusion">{{ backtestConclusion }}</p>
+
+                <p class="panel-note bt-howto">
+                    <strong>怎麼看下表：</strong>長條是照這個訊號買、持有 {{ btK }} 週的漲跌 (中位數)。
+                    虛線是隨便買的 {{ signedPct(btBaseline?.median ?? null, 1) }}，灰色區是虛線左右 ±{{ btClear }} 個百分點。
+                    長條超過灰色區 (紅) = 比隨便買多漲，沒碰到灰色區 (綠) = 少漲，停在灰色區裡 = 跟隨便買差不多。
+                </p>
+
+                <div class="table-wrap">
+                    <table class="data-table bt-table">
+                        <thead>
+                            <tr>
+                                <th>訊號</th>
+                                <th>條件 ({{ PERIOD_LABELS[period] }})</th>
+                                <th class="bt-bar-head">持有 {{ btK }} 週的漲跌 (虛線 = 隨便買 {{ signedPct(btBaseline?.median ?? null, 1) }})</th>
+                                <th>判讀</th>
+                                <th class="num" title="這一年內符合訊號的「個股 × 週」次數">次數</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- 對照組放第一列當基準，下面每個訊號都跟它比 -->
+                            <tr v-if="btBaseline" class="bt-base-row">
+                                <td class="bt-label">隨便買</td>
+                                <td class="bt-rule">不看籌碼，每週任選一檔題材股 (全部題材股的表現)</td>
+                                <td>
+                                    <div class="bt-bar-cell">
+                                        <div class="bt-track">
+                                            <span class="bt-band" :style="btBandStyle" />
+                                            <span class="bt-axis" :style="btZeroStyle" />
+                                            <span class="bt-bar is-base" :style="btBarStyle(btBaseline.median)" />
+                                            <span class="bt-base" :style="btBaseStyle" />
+                                        </div>
+                                        <span class="bt-val">{{ signedPct(btBaseline.median, 1) }}</span>
+                                        <span class="bt-diff muted">基準</span>
+                                    </div>
+                                </td>
+                                <td><span class="bt-tag is-few">基準</span></td>
+                                <td class="num secondary">{{ btBaseline.count?.toLocaleString() ?? "--" }}</td>
+                            </tr>
+                            <tr v-for="row in btRows" :key="row.key">
+                                <td class="bt-label">{{ row.label }}</td>
+                                <td class="bt-rule">{{ row.rule }}</td>
+                                <td>
+                                    <div class="bt-bar-cell">
+                                        <div class="bt-track">
+                                            <span class="bt-band" :style="btBandStyle" />
+                                            <span class="bt-axis" :style="btZeroStyle" />
+                                            <span class="bt-bar" :class="btBarClass(row)" :style="btBarStyle(row.median)" />
+                                            <span class="bt-base" :style="btBaseStyle" />
+                                        </div>
+                                        <span class="bt-val">{{ signedPct(row.median, 1) }}</span>
+                                        <span class="bt-diff" :class="polarity(row.excess)">
+                                            {{ row.excess === null ? "" : `比隨便買 ${signed(row.excess, 1)}` }}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td><span class="bt-tag" :class="row.tone">{{ row.verdict }}</span></td>
+                                <td class="num secondary">{{ row.count.toLocaleString() }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <details class="bt-more">
+                    <summary>看完整數字 (漲跌中位數、上漲機率)</summary>
+                    <div class="table-wrap">
+                        <table class="data-table bt-detail-table">
+                            <thead>
+                                <tr>
+                                    <th>訊號</th>
+                                    <th class="num">多漲 / 少漲</th>
+                                    <th class="num">{{ btK }} 週漲跌中位數</th>
+                                    <th class="num">上漲機率</th>
+                                    <th class="num">次數</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="row in btRows" :key="row.key">
+                                    <td>{{ row.label }}</td>
+                                    <td class="num" :class="polarity(row.excess)">{{ signed(row.excess, 1) }}</td>
+                                    <td class="num secondary">{{ signedPct(row.median, 1) }}</td>
+                                    <td class="num secondary">{{ row.win?.toFixed(0) ?? "--" }}%</td>
+                                    <td class="num secondary">{{ row.count.toLocaleString() }}</td>
+                                </tr>
+                                <tr v-if="btBaseline" class="total-row">
+                                    <td>隨便買 (全部題材股)</td>
+                                    <td class="num muted">--</td>
+                                    <td class="num secondary">{{ signedPct(btBaseline.median, 1) }}</td>
+                                    <td class="num secondary">{{ btBaseline.win?.toFixed(0) ?? "--" }}%</td>
+                                    <td class="num secondary">{{ btBaseline.count?.toLocaleString() ?? "--" }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="panel-note">
+                        漲跌中位數：出現訊號後 {{ btK }} 週股價漲跌的中位數。上漲機率：這些次數中 {{ btK }} 週後股價上漲的比例。
+                        多漲 / 少漲 = 訊號的漲跌中位數 − 隨便買的漲跌中位數。次數是「個股 × 週」，同一檔連續幾週都符合會算好幾次。
+                    </p>
+                </details>
+            </template>
+
             <p class="panel-note holders-foot">
-                超額是訊號的漲跌中位數減去全部題材股的中位數，單位是百分點，正數代表出現訊號後表現比較好。
-                用中位數是避免少數飆股把平均拉高。要注意：題材分類是現在的名單，過去一年又是多頭行情，
-                超額在 ±2 個百分點以內大致可以視為沒有差別。僅供參考，不構成投資建議。
+                用中位數而不是平均，是避免少數飆股把數字拉高。要注意：題材分類是現在的名單，有一點後見之明；
+                過去一年又是多頭行情，結果不一定適用在空頭。僅供參考，不構成投資建議。
             </p>
         </section>
     </section>
@@ -921,6 +1216,16 @@ onMounted(async () => {
 <style scoped>
 .guide {
     margin-bottom: 16px;
+}
+
+.threshold-more summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.threshold-more p {
+    margin: 4px 0 0;
 }
 
 /* 外觀像文字連結，接在副標題後面不搶版面 */
@@ -1038,19 +1343,227 @@ onMounted(async () => {
     font-size: 13px;
 }
 
-.backtest-table .group-head {
-    text-align: center;
-    border-bottom: 1px solid var(--border);
+/* 回測的三個步驟，寬螢幕排一列，窄螢幕改直排 */
+.bt-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
 }
 
-.backtest-table .excess {
-    font-size: 15px;
-    font-weight: 700;
+.bt-step {
+    position: relative;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-0);
 }
 
-/* 漲跌中位數混了大盤漲幅，改為次要資訊，不上紅綠色 */
-.backtest-table .secondary {
+/* 步驟之間的箭頭 */
+.bt-step + .bt-step::before {
+    content: "→";
+    position: absolute;
+    top: 50%;
+    left: -10px;
+    transform: translate(-50%, -50%);
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.bt-step-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.bt-step-no {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    color: var(--surface-0);
+    font-size: 11px;
+}
+
+.bt-step-value {
+    font-size: 13px;
+}
+
+.bt-step-note {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+    .bt-steps {
+        grid-template-columns: 1fr;
+    }
+
+    .bt-step + .bt-step::before {
+        content: "↓";
+        top: -10px;
+        left: 50%;
+    }
+}
+
+.bt-howto {
+    margin: 0 0 8px;
+}
+
+.bt-label {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.bt-rule {
     color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.bt-bar-head {
+    width: 38%;
+    min-width: 240px;
+}
+
+.bt-bar-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* 實線是 0，虛線是隨便買，灰帶是虛線左右 ± 門檻的「沒差別」區 */
+.bt-track {
+    position: relative;
+    flex: 1;
+    height: 14px;
+    min-width: 160px;
+}
+
+.bt-band {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: var(--neutral);
+}
+
+.bt-axis {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 1px;
+    background: var(--text-muted);
+}
+
+.bt-base {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    margin-left: -1px;
+    border-left: 2px dashed var(--text-primary);
+}
+
+.bt-bar {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    border-radius: 2px;
+}
+
+.bt-bar.is-up {
+    background: var(--buy);
+}
+
+.bt-bar.is-down {
+    background: var(--sell);
+}
+
+.bt-bar.is-flat {
+    background: var(--text-muted);
+    opacity: 0.55;
+}
+
+/* 方向同上，但差距在門檻內 (沒差別)，用淺色表示 */
+.bt-bar.is-light {
+    opacity: 0.35;
+}
+
+/* 隨便買的基準列：深色長條、底色區隔，和下面的訊號分開 */
+.bt-bar.is-base {
+    background: var(--text-primary);
+    opacity: 0.75;
+}
+
+.bt-base-row td {
+    background: var(--surface-0);
+    border-bottom: 2px solid var(--border);
+}
+
+.bt-val {
+    width: 52px;
+    text-align: right;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.bt-diff {
+    width: 92px;
+    font-size: 12px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.bt-tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.bt-tag.is-up {
+    color: var(--buy);
+    border: 1px solid var(--buy);
+}
+
+.bt-tag.is-down {
+    color: var(--sell);
+    border: 1px solid var(--sell);
+}
+
+.bt-tag.is-flat,
+.bt-tag.is-few {
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+
+.bt-table .secondary,
+.bt-detail-table .secondary {
+    color: var(--text-secondary);
+}
+
+.bt-more {
+    margin-top: 10px;
+}
+
+.bt-more summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 13px;
+    user-select: none;
+}
+
+.bt-more .table-wrap {
+    margin-top: 8px;
 }
 
 .backtest-conclusion {

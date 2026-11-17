@@ -1,12 +1,16 @@
 <script setup lang="ts">
 /**
- * 題材資金流向與季度輪動軌跡：
- * 針對 12 週 (一季) 提供：
- * 1. 1 週逐週切分 (W1 ~ W12) 與精準行為標籤（主力鎖碼、先買後倒 C、超跌承接、持續提款、區間震盪）
- * 2. 多種視覺圖表自由挑選（籌碼行為分類走勢、排名變化、資金流向、資金進出排行、12週逐週脈動柱圖）；1 週與 4 週只顯示淨額長條圖
+ * 題材資金流向與輪動軌跡：
+ * 針對 1 週 (上週與這週對照)、4 週與 12 週 (一季) 提供：
+ * 1. 1 週逐週切分 (W1 ~ W4 或 W1 ~ W12) 與精準行為標籤（主力鎖碼、先買後倒 C、超跌承接、持續提款、區間震盪）
+ * 2. 多種視覺圖表自由挑選（籌碼行為分類走勢、排名變化、資金流向、資金進出排行、逐週脈動柱圖）；
+ *    1 週的第 5 種圖改用淨額長條圖，兩根長條的逐週脈動與其他圖重複
  * 3. 2 種文字結論自由挑選（白話操盤故事、條列重點戰報）
+ *
+ * 集保股權分散表每週只公布一次，沒有每日資料，1 週無法再往下切分，
+ * 因此 1 週改成「上週與這週」兩週對照，每個點都是單週增減，不做累計。
  */
-import { computed, ref, watch } from "vue"
+import { computed, onBeforeUnmount, ref, watch } from "vue"
 import VChart from "vue-echarts"
 
 import type { HoldersAnalysis } from "@/types"
@@ -26,35 +30,68 @@ const props = withDefaults(
 const conclusionMode = ref<"story" | "report">("story")
 
 /**
- * 12 週時的圖表類型：trend (籌碼行為分類走勢) | rank (排名變化) | money (資金流向)
+ * 4 週、12 週時的圖表類型：trend (籌碼行為分類走勢) | rank (排名變化) | money (資金流向)
  * | moneyBar (資金進出排行，左右兩欄長條圖)
- * | weekly (12週逐週脈動)
- * 淨額長條圖只在 1 週與 4 週顯示，12 週與資金進出排行重複，不提供
+ * | weekly (逐週脈動)
+ * 淨額長條圖只在 1 週顯示 (佔用 weekly 的位置)，4 週、12 週與資金進出排行重複，不提供
  */
 const chartType = ref<"trend" | "rank" | "money" | "moneyBar" | "weekly">("trend")
 
-/** 資金流向圖的期間：全季或季初、季中、季末各 4 週 */
-const MONEY_STAGES = [
+/**
+ * 1 週改成「上週與這週」兩週對照：每個點都是單週增減，不做累計，
+ * 才能和上方選的「1 週」一致
+ */
+const isWeekly = computed(() => props.period === 1)
+/** 圖表涵蓋的週數：1 週看上週與這週 2 週，4 週、12 週逐週追蹤 */
+const span = computed(() => (isWeekly.value ? 2 : props.period))
+/** 是否為一季 (12 週)：季初、季中、季末與「每月」切分只在一季時提供 */
+const isQuarter = computed(() => span.value === 12)
+/** 說明文字用的完整期間：「一季」或「 4 週」 */
+const periodText = computed(() => (isQuarter.value ? "一季" : isWeekly.value ? "兩週" : ` ${span.value} 週`))
+/** 說明文字用的期間名稱：一季叫「季」，4 週叫「期」 */
+const termWord = computed(() => (isQuarter.value ? "季" : "期"))
+
+/**
+ * 行為標籤的門檻倍率：門檻是依一季訂的，4 週的變化比較小，比照頁面上方排行的門檻減半
+ */
+const tagScale = computed(() => (isQuarter.value ? 1 : 0.5))
+/** 行為標籤門檻：turn 為峰值 / 谷底與回落 / 回升幅度，total 為期末累計，weeks 為買賣超週數 */
+const tagThresholds = computed(() => ({
+    turn: +(1.2 * tagScale.value).toFixed(2),
+    total: +(1.5 * tagScale.value).toFixed(2),
+    weeks: Math.ceil((span.value * 7) / 12),
+}))
+
+/** 資金流向圖的期間：一季可選全季或季初、季中、季末各 4 週；4 週只有全期；1 週的資金進出排行只看這週 */
+type MoneyStage = { key: string; label: string; from: number; to: number }
+const MONEY_STAGES_QUARTER: MoneyStage[] = [
     { key: "all", label: "全季", from: 0, to: 11 },
     { key: "early", label: "季初 (W1~W4)", from: 0, to: 3 },
     { key: "mid", label: "季中 (W5~W8)", from: 4, to: 7 },
     { key: "late", label: "季末 (W9~W12)", from: 8, to: 11 },
-] as const
-const moneyStage = ref<(typeof MONEY_STAGES)[number]["key"]>("all")
+]
+const moneyStages = computed<MoneyStage[]>(() => {
+    if (isQuarter.value) return MONEY_STAGES_QUARTER
+    if (isWeekly.value) return [{ key: "all", label: "這週", from: 1, to: 1 }]
+    return [{ key: "all", label: `全期 (W1~W${span.value})`, from: 0, to: Math.max(0, span.value - 1) }]
+})
+const moneyStage = ref("all")
+const activeStage = computed(() => moneyStages.value.find((x) => x.key === moneyStage.value) ?? moneyStages.value[0])
 
 /**
  * 資金流向圖與資金進出排行目前比較的日期範圍。
  * 每週的增減是和前一週相比，所以起點是第一週的前一週
  */
 const stageRange = computed(() => {
-    const idx = currentWeekIdx.value
-    if (props.period !== 12 || idx < 11) return null
-    const stage = MONEY_STAGES.find((x) => x.key === moneyStage.value) ?? MONEY_STAGES[0]
+    const base0 = trackStart.value
+    if (base0 < 0) return null
+    // 1 週的資金流向圖畫上週與這週兩欄，資金進出排行只看這週
+    const stage = isWeekly.value && chartType.value === "money" ? { from: 0, to: 1 } : activeStage.value
     const weeks = props.heatmap.weeks
-    const first = idx - 11 + stage.from
+    const first = base0 + stage.from
     return {
         start: weeks[first],
-        end: weeks[idx - 11 + stage.to],
+        end: weeks[base0 + stage.to],
         base: first > 0 ? weeks[first - 1] : null,
         count: stage.to - stage.from + 1,
     }
@@ -63,14 +100,16 @@ const stageRange = computed(() => {
 /** 標籤篩選：全部 或 特定行為標籤 */
 const activeTagFilter = ref<string>("ALL")
 
-/** 非 12 週時的長條圖是否顯示全部 */
+/** 1 週時的長條圖是否顯示全部 */
 const showAll = ref(false)
 
 watch(
     () => props.period,
-    // 1 週與 4 週固定顯示淨額長條圖，不看 chartType
-    (newP) => {
-        if (newP === 12) chartType.value = "trend"
+    // 1 週固定顯示淨額長條圖，不看 chartType；切換期間時各種切換回到預設
+    () => {
+        chartType.value = "trend"
+        moneyStage.value = "all"
+        activeTagFilter.value = "ALL"
     },
 )
 
@@ -81,6 +120,16 @@ const currentWeekIdx = computed(() => {
     const idx = weeks.indexOf(target)
     return idx >= 0 ? idx : weeks.length - 1
 })
+
+/** 逐週追蹤的第 1 週 (W1) 在 heatmap.weeks 的位置；1 週或往回週數不足時為 -1 */
+const trackStart = computed(() => {
+    const idx = currentWeekIdx.value
+    const n = span.value
+    if (!n || idx < n - 1) return -1
+    return idx - n + 1
+})
+/** 是否顯示逐週追蹤的圖表與標籤 */
+const tracked = computed(() => trackStart.value >= 0)
 
 const targetDate = computed(() => {
     const idx = currentWeekIdx.value
@@ -104,7 +153,7 @@ function sumRange(vals: (number | null)[], start: number, end: number): number |
 }
 
 // -------------------------------------------------------------
-// 12 週逐週切分與標籤演算法 (1-Week Resolution & Tagging)
+// 逐週切分與標籤演算法 (1-Week Resolution & Tagging)
 // -------------------------------------------------------------
 export type BehaviorTag =
     | "主力長線鎖碼"
@@ -112,14 +161,20 @@ export type BehaviorTag =
     | "超跌換手承接"
     | "持續提款外流"
     | "區間震盪觀望"
+    // 1 週 (上週與這週對照) 使用
+    | "連續買"
+    | "轉賣"
+    | "轉買"
+    | "連續賣"
+    | "持平觀望"
 
 export interface WeeklyThemeAnalysis {
     id: string
     name: string
     total: number
-    /** 12 週各週的單週增減量 (W1 ~ W12) */
+    /** 各週的單週增減量 (W1 ~ WN) */
     weeklyValues: number[]
-    /** 12 週的逐週累計走勢 (W1 到 W12 累加) */
+    /** 逐週累計走勢 (W1 到 WN 累加) */
     cumValues: number[]
     buyWeeks: number
     sellWeeks: number
@@ -135,20 +190,22 @@ export interface WeeklyThemeAnalysis {
     tagDesc: string
 }
 
-/** 12 週各週的週次資訊 (W1 ~ W12) */
-const weeks12Meta = computed(() => {
-    const idx = currentWeekIdx.value
-    if (props.period !== 12 || idx < 11) return []
+/** 各週的週次資訊 (W1 ~ WN) */
+const trackWeeks = computed(() => {
+    const start = trackStart.value
+    if (start < 0) return []
     const weeks = props.heatmap.weeks
     const res = []
-    for (let w = 0; w < 12; w++) {
-        const weekIdx = idx - 11 + w
+    for (let w = 0; w < span.value; w++) {
+        const weekIdx = start + w
         const rawDate = weeks[weekIdx]
         const dStr = formatDate(rawDate).slice(5)
+        // 1 週只有兩欄，用「上週」「這週」比 W1、W2 好懂
+        const label = isWeekly.value ? (w === 0 ? "上週" : "這週") : `W${w + 1}`
         res.push({
             index: w + 1,
-            label: `W${w + 1}`,
-            fullLabel: `W${w + 1} (${dStr})`,
+            label,
+            fullLabel: `${label} (${dStr})`,
             rawDate,
             dateStr: dStr,
         })
@@ -156,21 +213,55 @@ const weeks12Meta = computed(() => {
     return res
 })
 
-/** 12 週深度分析與 1 週標籤計算 */
-const analysis12 = computed<WeeklyThemeAnalysis[]>(() => {
-    const idx = currentWeekIdx.value
-    if (props.period !== 12 || idx < 11) return []
+/** 1 週的持平門檻：某一週的變化在 ±0.1 個百分點以內，那一週不算買也不算賣 */
+const FLAT_THRESHOLD = 0.1
+
+/** 單週的方向：1 買、-1 賣、0 持平 (變化太小，視為雜訊) */
+function weekDir(v: number): number {
+    return Math.abs(v) <= FLAT_THRESHOLD ? 0 : Math.sign(v)
+}
+
+/**
+ * 1 週的行為標籤：以這週的方向為主，再看上週是延續還是轉向。
+ * 這週持平就是持平觀望；這週買進時，上週也買是連續買，上週賣出或持平是轉買 (賣出同理)
+ */
+function weeklyTag(prev: number, cur: number): { tag: BehaviorTag; tagIcon: string; tagDesc: string } {
+    const text = `上週 ${signed(prev)}%、這週 ${signed(cur)}%`
+    const dPrev = weekDir(prev)
+    const dCur = weekDir(cur)
+    if (dCur === 0) {
+        const note = dPrev > 0 ? "大戶這週停止加碼" : dPrev < 0 ? "大戶這週停止賣出" : "兩週變化都很小"
+        return { tag: "持平觀望", tagIcon: "", tagDesc: `${text}，${note}` }
+    }
+    if (dCur > 0) {
+        if (dPrev > 0) return { tag: "連續買", tagIcon: "", tagDesc: `${text}，大戶持續加碼` }
+        const note = dPrev < 0 ? "大戶由賣轉買，開始回補" : "上週持平，大戶這週開始買進"
+        return { tag: "轉買", tagIcon: "", tagDesc: `${text}，${note}` }
+    }
+    if (dPrev < 0) return { tag: "連續賣", tagIcon: "", tagDesc: `${text}，大戶持續撤出` }
+    const note = dPrev > 0 ? "大戶由買轉賣，開始倒貨" : "上週持平，大戶這週開始賣出"
+    return { tag: "轉賣", tagIcon: "", tagDesc: `${text}，${note}` }
+}
+
+/** 逐週深度分析與 1 週標籤計算 */
+const trackAnalysis = computed<WeeklyThemeAnalysis[]>(() => {
+    const start = trackStart.value
+    if (start < 0) return []
+    const n = span.value
+    const th = tagThresholds.value
+    const word = termWord.value
+    const isW = isWeekly.value
 
     const themes = props.heatmap.themes
-    const meta = weeks12Meta.value
+    const meta = trackWeeks.value
     const res: WeeklyThemeAnalysis[] = []
 
     for (const theme of themes) {
-        const slice12 = theme.values.slice(idx - 11, idx + 1)
-        if (slice12.length < 12 || slice12.some((v) => v === null || v === undefined)) {
+        const sliceN = theme.values.slice(start, start + n)
+        if (sliceN.length < n || sliceN.some((v) => v === null || v === undefined)) {
             continue
         }
-        const vals = slice12 as number[]
+        const vals = sliceN as number[]
 
         // 統計買超週數與賣超週數
         let buyWeeks = 0
@@ -188,15 +279,17 @@ const analysis12 = computed<WeeklyThemeAnalysis[]>(() => {
         let valley = 999
         let valleyWeek = 0
 
-        for (let w = 0; w < 12; w++) {
+        for (let w = 0; w < n; w++) {
             curr = +(curr + vals[w]).toFixed(2)
-            cumValues.push(curr)
-            if (curr > peak) {
-                peak = curr
+            // 1 週不做累計，每個點就是那一週的單週增減
+            cumValues.push(isW ? vals[w] : curr)
+            const point = cumValues[w]
+            if (point > peak) {
+                peak = point
                 peakWeek = w + 1
             }
-            if (curr < valley) {
-                valley = curr
+            if (point < valley) {
+                valley = point
                 valleyWeek = w + 1
             }
         }
@@ -214,26 +307,31 @@ const analysis12 = computed<WeeklyThemeAnalysis[]>(() => {
         let tagIcon = "⏳"
         let tagDesc = `買超 ${buyWeeks} 週 / 賣超 ${sellWeeks} 週，籌碼區間多空拉鋸`
 
-        if (peak >= 1.2 && dumpFromPeak >= 1.2) {
+        if (isW) {
+            const wt = weeklyTag(vals[0], vals[1])
+            tag = wt.tag
+            tagIcon = wt.tagIcon
+            tagDesc = wt.tagDesc
+        } else if (peak >= th.turn && dumpFromPeak >= th.turn) {
             tag = "波段出貨(先買後倒)"
             tagIcon = "🚨"
             tagDesc = `W${peakWeek} (${peakDate}) 見頂 (+${peak}%) 後遭大戶連續倒貨 ${dumpFromPeak}%`
-        } else if (valley <= -1.2 && bounceFromValley >= 1.2) {
+        } else if (valley <= -th.turn && bounceFromValley >= th.turn) {
             tag = "超跌換手承接"
             tagIcon = "🔄"
             tagDesc = `W${valleyWeek} (${valleyDate}) 落底 (${valley}%) 後大戶回補低接 +${bounceFromValley}%`
-        } else if (total >= 1.5 && (buyWeeks >= 7 || vals[10] + vals[11] >= 0)) {
+        } else if (total >= th.total && (buyWeeks >= th.weeks || vals[n - 2] + vals[n - 1] >= 0)) {
             tag = "主力長線鎖碼"
             tagIcon = "🔒"
-            tagDesc = `買超高達 ${buyWeeks}/12 週，季底持股持續攻頂 (+${total}%)`
-        } else if (total <= -1.5 && sellWeeks >= 7) {
+            tagDesc = `買超 ${buyWeeks}/${n} 週，${word}末持股持續攻頂 (+${total}%)`
+        } else if (total <= -th.total && sellWeeks >= th.weeks) {
             tag = "持續提款外流"
             tagIcon = "💸"
-            tagDesc = `賣超多達 ${sellWeeks}/12 週，大戶季內一路賣超提款 (${total}%)`
-        } else if (total <= -1.5) {
+            tagDesc = `賣超 ${sellWeeks}/${n} 週，大戶${word}內一路賣超提款 (${total}%)`
+        } else if (total <= -th.total) {
             tag = "持續提款外流"
             tagIcon = "💸"
-            tagDesc = `季內遭大戶單週重擊提款，總減碼達 ${total}%`
+            tagDesc = `${word}內遭大戶單週重擊提款，總減碼達 ${total}%`
         }
 
         res.push({
@@ -288,7 +386,7 @@ const simpleDiffs = computed(() => {
 // 結論計算 (白話操盤故事 vs 條列重點戰報)
 // -------------------------------------------------------------
 const storyConclusion = computed(() => {
-    if (props.period !== 12 || !analysis12.value.length) {
+    if (!tracked.value || !trackAnalysis.value.length) {
         const target = targetDate.value
         const start = startDate.value
         const k = props.period
@@ -300,7 +398,9 @@ const storyConclusion = computed(() => {
         return `這段期間（${spanText}），大戶主要流入 ${topIn.map((t) => `「${t.name}」(+${t.value.toFixed(1)}%)`).join("、")}；主要自 ${topOut.map((t) => `「${t.name}」(${t.value.toFixed(1)}%)`).join("、")} 撤出。`
     }
 
-    const items = analysis12.value
+    const items = trackAnalysis.value
+    if (isWeekly.value) return weeklyStory(items)
+    if (!isQuarter.value) return shortStory(items)
     const lockThemes = items.filter((t) => t.tag === "主力長線鎖碼").map((t) => t.name)
     const dumpThemes = items.filter((t) => t.tag === "波段出貨(先買後倒)").map((t) => t.name)
     const outThemes = items.filter((t) => t.tag === "持續提款外流").map((t) => t.name)
@@ -315,9 +415,96 @@ const storyConclusion = computed(() => {
 生動呈現「A (提款族群) ➡️ C (中繼拉抬出貨) ➡️ B (季末鎖碼終點)」的每週籌碼轉移軌跡。`
 })
 
+/**
+ * 4 週的白話故事：4 週切不出季初、季中、季末三段，
+ * 改成依行為標籤逐類敘述，再補上最近一週買賣最多的題材
+ */
+function shortStory(items: WeeklyThemeAnalysis[]): string {
+    const n = span.value
+    const meta = trackWeeks.value
+    const names = (tag: BehaviorTag) =>
+        items.filter((t) => t.tag === tag).slice(0, 3).map((t) => `「${t.name}」`).join("、")
+    const lock = names("主力長線鎖碼")
+    const dump = names("波段出貨(先買後倒)")
+    const bounce = names("超跌換手承接")
+    const out = names("持續提款外流")
+
+    const lines = [`在這 ${n} 週逐週 (W1 ~ W${n}，${meta[0]?.dateStr} ~ ${meta[n - 1]?.dateStr}) 的籌碼流轉中：`]
+    if (lock) lines.push(`- 大戶持續加碼：${lock}，多數週都在買，期末持股仍在高點。`)
+    if (dump) lines.push(`- 先買後倒：${dump}，期間內衝上高點後被大戶倒貨。`)
+    if (bounce) lines.push(`- 低點承接：${bounce}，先被賣到低點，之後大戶回補。`)
+    if (out) lines.push(`- 一路撤出：${out}，大戶在這 ${n} 週明顯減碼。`)
+    if (lines.length === 1) lines.push("- 各題材買賣互見，大戶沒有明確偏好的方向。")
+
+    // 最近一週 (WN) 單週買賣最多的題材，看資金最新往哪裡移動
+    const last = items.slice().sort((a, b) => b.weeklyValues[n - 1] - a.weeklyValues[n - 1])
+    const lastIn = last.filter((t) => t.weeklyValues[n - 1] > 0).slice(0, 2)
+    const lastOut = last.filter((t) => t.weeklyValues[n - 1] < 0).slice(-2).reverse()
+    if (lastIn.length || lastOut.length) {
+        const fmt = (list: WeeklyThemeAnalysis[]) =>
+            list.map((t) => `「${t.name}」(${signed(t.weeklyValues[n - 1])}%)`).join("、")
+        lines.push(
+            `最近一週 (W${n}) 大戶買最多的是 ${fmt(lastIn) || "無"}，賣最多的是 ${fmt(lastOut) || "無"}。`,
+        )
+    }
+    return lines.join("\n")
+}
+
+/** 1 週的白話故事：依延續或轉向逐類敘述，再補上這週買賣最多的題材 */
+function weeklyStory(items: WeeklyThemeAnalysis[]): string {
+    const meta = trackWeeks.value
+    const names = (tag: BehaviorTag) => {
+        const list = items.filter((t) => t.tag === tag)
+        if (!list.length) return ""
+        const head = list.slice(0, 3).map((t) => `「${t.name}」`).join("、")
+        return list.length > 3 ? `${head} 等 ${list.length} 個` : head
+    }
+    const lines = [`上週 (${meta[0]?.dateStr}) 與這週 (${meta[1]?.dateStr}) 對照：`]
+    const groups: [BehaviorTag, string][] = [
+        ["連續買", "大戶持續加碼"],
+        ["轉買", "大戶這週開始買進"],
+        ["轉賣", "大戶這週開始賣出"],
+        ["連續賣", "大戶持續撤出"],
+    ]
+    for (const [tag, meaning] of groups) {
+        const text = names(tag)
+        if (text) lines.push(`- ${tag} (${meaning})：${text}`)
+    }
+    const flat = items.filter((t) => t.tag === "持平觀望").length
+    if (flat) lines.push(`- 其餘 ${flat} 個題材這週變化在 ±${FLAT_THRESHOLD} 以內，持平觀望。`)
+
+    // items 已依這週的增減由大到小排序
+    const lastIn = items.filter((t) => t.total > 0).slice(0, 2)
+    const lastOut = items.filter((t) => t.total < 0).slice(-2).reverse()
+    if (lastIn.length || lastOut.length) {
+        const fmt = (list: WeeklyThemeAnalysis[]) =>
+            list.map((t) => `「${t.name}」(${signed(t.total)}%)`).join("、")
+        lines.push(`這週大戶買最多的是 ${fmt(lastIn) || "無"}，賣最多的是 ${fmt(lastOut) || "無"}。`)
+    }
+    return lines.join("\n")
+}
+
 const reportGroups = computed(() => {
-    if (props.period !== 12 || !analysis12.value.length) return null
-    const items = analysis12.value
+    if (!tracked.value || !trackAnalysis.value.length) return null
+    const items = trackAnalysis.value
+    const n = span.value
+    const q = isQuarter.value
+
+    if (isWeekly.value) {
+        const group = (tag: BehaviorTag, cls: string, desc: string) => ({
+            tag,
+            icon: "",
+            class: cls,
+            items: items.filter((t) => t.tag === tag),
+            desc,
+        })
+        return [
+            group("連續買", "tag-lock", "上週買、這週也買，大戶持續加碼"),
+            group("轉買", "tag-bounce", "上週賣出或持平、這週買進，大戶開始買進"),
+            group("轉賣", "tag-dump", "上週買進或持平、這週賣出，大戶開始賣出"),
+            group("連續賣", "tag-out", "上週賣、這週也賣，大戶持續撤出"),
+        ]
+    }
 
     return [
         {
@@ -325,28 +512,32 @@ const reportGroups = computed(() => {
             icon: "🔒",
             class: "tag-lock",
             items: items.filter((t) => t.tag === "主力長線鎖碼"),
-            desc: "12 週中高頻率週週買超，籌碼沉澱極佳，為季內法人長線主升核心",
+            desc: q
+                ? "12 週中高頻率週週買超，籌碼沉澱極佳，為季內法人長線主升核心"
+                : `${n} 週中多數週買超，期末持股仍在高點`,
         },
         {
             tag: "波段出貨(先買後倒)",
             icon: "🚨",
             class: "tag-dump",
             items: items.filter((t) => t.tag === "波段出貨(先買後倒)"),
-            desc: "季中（W5~W8）曾爆量衝上高峰，但隨後在 W9~W12 遭主力反手大倒貨結帳",
+            desc: q
+                ? "季中（W5~W8）曾爆量衝上高峰，但隨後在 W9~W12 遭主力反手大倒貨結帳"
+                : `${n} 週內曾衝上高峰，之後遭大戶倒貨`,
         },
         {
             tag: "超跌換手承接",
             icon: "🔄",
             class: "tag-bounce",
             items: items.filter((t) => t.tag === "超跌換手承接"),
-            desc: "前期遭重砍創季內低點後，中後期獲得主力進場逢低承接",
+            desc: `前期遭重砍創${termWord.value}內低點後，後期獲得主力進場逢低承接`,
         },
         {
             tag: "持續提款外流",
             icon: "💸",
             class: "tag-out",
             items: items.filter((t) => t.tag === "持續提款外流"),
-            desc: "12 週中大部分週次均為淨賣出，大戶一路減碼外逃",
+            desc: `${n} 週中大部分週次均為淨賣出，大戶一路減碼外逃`,
         },
     ]
 })
@@ -358,13 +549,25 @@ const reportGroups = computed(() => {
  * 趨勢線改成「每類一張小圖」：五種行為標籤各畫一張，類別一看標題就知道，
  * 不用靠色系分辨
  */
-const TREND_GROUPS: { tag: BehaviorTag; label: string; desc: string }[] = [
-    { tag: "主力長線鎖碼", label: "主力長線鎖碼", desc: "多數週買超，季底持股仍在高點" },
-    { tag: "波段出貨(先買後倒)", label: "波段出貨 (先買後倒)", desc: "季中衝上高峰後被倒貨，圖釘標示峰值" },
-    { tag: "超跌換手承接", label: "超跌換手承接", desc: "先被重砍到季內低點，之後大戶回補，圖釘標示谷底" },
-    { tag: "持續提款外流", label: "持續提款外流", desc: "多數週賣超，大戶一路減碼" },
-    { tag: "區間震盪觀望", label: "區間震盪觀望", desc: "買賣互見，沒有明確方向" },
-]
+const trendGroupDefs = computed<{ tag: BehaviorTag; label: string; desc: string }[]>(() => {
+    if (isWeekly.value) {
+        return [
+            { tag: "連續買", label: "連續買", desc: "上週買、這週也買，大戶持續加碼" },
+            { tag: "轉買", label: "轉買", desc: "上週賣出或持平、這週買進" },
+            { tag: "轉賣", label: "轉賣", desc: "上週買進或持平、這週賣出" },
+            { tag: "連續賣", label: "連續賣", desc: "上週賣、這週也賣，大戶持續撤出" },
+            { tag: "持平觀望", label: "持平觀望", desc: `這週變化在 ±${FLAT_THRESHOLD} 以內` },
+        ]
+    }
+    const w = termWord.value
+    return [
+        { tag: "主力長線鎖碼", label: "主力長線鎖碼", desc: `多數週買超，${w}末持股仍在高點` },
+        { tag: "波段出貨(先買後倒)", label: "波段出貨 (先買後倒)", desc: `${w}內衝上高峰後被倒貨，圖釘標示峰值` },
+        { tag: "超跌換手承接", label: "超跌換手承接", desc: `先被重砍到${w}內低點，之後大戶回補，圖釘標示谷底` },
+        { tag: "持續提款外流", label: "持續提款外流", desc: "多數週賣超，大戶一路減碼" },
+        { tag: "區間震盪觀望", label: "區間震盪觀望", desc: "買賣互見，沒有明確方向" },
+    ]
+})
 
 /** 小圖內的題材顏色：同一張小圖裡彼此容易分辨即可 */
 const TREND_PALETTE = [
@@ -373,9 +576,9 @@ const TREND_PALETTE = [
 ]
 
 const trendGroups = computed(() =>
-    TREND_GROUPS.map((g) => ({
+    trendGroupDefs.value.map((g) => ({
         ...g,
-        items: analysis12.value
+        items: trackAnalysis.value
             .filter((t) => t.tag === g.tag)
             .sort((x, y) => y.total - x.total)
             .map((t, i) => ({
@@ -409,17 +612,21 @@ const trendPanelOption = (g: TrendGroup) => {
                     const theme = g.items.find((x) => x.theme.name === p.seriesName)?.theme
                     const weeklyVal = theme?.weeklyValues[dataIndex]
                     const weeklyStr = weeklyVal !== undefined ? `（當週 ${signed(weeklyVal)}%）` : ""
-                    rows.push(`${p.marker} ${p.seriesName}：累計 ${signed(p.value as number)}% ${weeklyStr}`)
+                    rows.push(
+                        isWeekly.value
+                            ? `${p.marker} ${p.seriesName}：單週 ${signed(p.value as number)}%`
+                            : `${p.marker} ${p.seriesName}：累計 ${signed(p.value as number)}% ${weeklyStr}`,
+                    )
                 }
                 return rows.join("<br>")
             },
         },
         xAxis: {
             type: "category",
-            data: weeks12Meta.value.map((m) => `${m.label}\n${m.dateStr}`),
+            data: trackWeeks.value.map((m) => `${m.label}\n${m.dateStr}`),
             axisLine: { lineStyle: { color: c.border } },
             axisTick: { show: false },
-            axisLabel: { color: c.secondary, fontSize: 9, interval: 1 },
+            axisLabel: { color: c.secondary, fontSize: 9, interval: isQuarter.value ? 1 : 0 },
         },
         yAxis: {
             type: "value",
@@ -468,21 +675,26 @@ const trendPanelOption = (g: TrendGroup) => {
 // 每週把所有題材依累計增減排名，第 1 名在最上面。每個點都是實際資料，
 // 不需要推估題材之間的流向
 // -------------------------------------------------------------
-/** 只畫第 12 週的前幾名，以及曾經衝進前幾名後又掉下來的題材，避免線條糾成一團 */
+/** 只畫最後一週的前幾名，以及曾經衝進前幾名後又掉下來的題材，避免線條糾成一團 */
 const RANK_FINAL_TOP = 6
 const RANK_PEAK_TOP = 3
 /** 「衝上去又掉下來」最多畫幾條 */
 const RANK_FALLEN_MAX = 3
-/** 前兩週的累計只有一兩週資料，名次跳動大，判斷是否衝進前幾名時從第 3 週起算 */
-const RANK_PEAK_FROM_WEEK = 2
+/**
+ * 前幾週的累計只有一兩週資料，名次跳動大，判斷是否衝進前幾名時跳過：
+ * 12 週從第 3 週起算，4 週只有 4 個點，只跳過第 1 週；
+ * 1 週是單週排名不累計，上週的名次就有意義，不跳過
+ */
+const rankPeakFrom = computed(() => (isQuarter.value ? 2 : isWeekly.value ? 0 : 1))
 
 const rankData = computed(() => {
-    const items = analysis12.value
+    const items = trackAnalysis.value
     if (!items.length) return null
 
     // ranks[i][w]：第 i 個題材在第 w 週的名次
     const ranks: number[][] = items.map(() => [])
-    for (let w = 0; w < 12; w++) {
+    const n = span.value
+    for (let w = 0; w < n; w++) {
         const order = items
             .map((t, i) => ({ i, v: t.cumValues[w] }))
             .sort((a, b) => b.v - a.v)
@@ -493,13 +705,13 @@ const rankData = computed(() => {
 
     const finalTop = items
         .map((_, i) => i)
-        .sort((a, b) => ranks[a][11] - ranks[b][11])
+        .sort((a, b) => ranks[a][n - 1] - ranks[b][n - 1])
         .slice(0, RANK_FINAL_TOP)
     // 曾衝進前幾名、最後掉出前段班的題材，挑掉得最多的幾個
     const fallen = items
-        .map((_, i) => ({ i, best: Math.min(...ranks[i].slice(RANK_PEAK_FROM_WEEK)) }))
+        .map((_, i) => ({ i, best: Math.min(...ranks[i].slice(rankPeakFrom.value)) }))
         .filter((x) => !finalTop.includes(x.i) && x.best <= RANK_PEAK_TOP)
-        .sort((a, b) => (ranks[b.i][11] - b.best) - (ranks[a.i][11] - a.best))
+        .sort((a, b) => (ranks[b.i][n - 1] - b.best) - (ranks[a.i][n - 1] - a.best))
         .slice(0, RANK_FALLEN_MAX)
         .map((x) => x.i)
 
@@ -527,7 +739,7 @@ const rankOption = computed(() => {
             trigger: "axis",
             formatter: (params: any) => {
                 const w = params[0]?.dataIndex ?? 0
-                const meta = weeks12Meta.value[w]
+                const meta = trackWeeks.value[w]
                 const lines = [`<strong>${meta?.fullLabel ?? ""} 排名 (共 ${total} 個題材)</strong>`]
                 // 所有題材依名次列出，彩色的主要題材加粗
                 const order = [...picked, ...others]
@@ -535,8 +747,10 @@ const rankOption = computed(() => {
                 for (const p of sorted) {
                     const t = items[order[p.seriesIndex]]
                     const main = p.seriesIndex < picked.length
-                    const text = `第 ${p.value} 名　${p.seriesName}　累計 ${signed(t.cumValues[w])}%`
-                        + `（當週 ${signed(t.weeklyValues[w])}%）`
+                    const text = isWeekly.value
+                        ? `第 ${p.value} 名　${p.seriesName}　單週 ${signed(t.weeklyValues[w])}%`
+                        : `第 ${p.value} 名　${p.seriesName}　累計 ${signed(t.cumValues[w])}%`
+                            + `（當週 ${signed(t.weeklyValues[w])}%）`
                     lines.push(main ? `${p.marker} <strong>${text}</strong>` : `<span style="opacity:0.7">${text}</span>`)
                 }
                 return lines.join("<br>")
@@ -545,7 +759,7 @@ const rankOption = computed(() => {
         xAxis: {
             type: "category",
             boundaryGap: false,
-            data: weeks12Meta.value.map((m) => `${m.label}
+            data: trackWeeks.value.map((m) => `${m.label}
 (${m.dateStr})`),
             axisLine: { lineStyle: { color: c.border } },
             axisTick: { show: false },
@@ -612,16 +826,16 @@ const rankOption = computed(() => {
 // 選定期間內各題材的淨額合計，給資金進出排行的說明文字用
 // -------------------------------------------------------------
 const moneyFlow = computed(() => {
-    const idx = currentWeekIdx.value
-    if (props.period !== 12 || idx < 11) return null
+    const start = trackStart.value
+    if (start < 0) return null
     const themes = props.heatmap.themes.filter((t) => t.amounts)
     if (!themes.length) return null
-    const stage = MONEY_STAGES.find((x) => x.key === moneyStage.value) ?? MONEY_STAGES[0]
+    const stage = activeStage.value
 
     const sells: { name: string; v: number }[] = []
     const buys: { name: string; v: number }[] = []
     for (const t of themes) {
-        const slice = (t.amounts ?? []).slice(idx - 11 + stage.from, idx - 11 + stage.to + 1)
+        const slice = (t.amounts ?? []).slice(start + stage.from, start + stage.to + 1)
         const net = slice.reduce<number>((a, v) => a + (v ?? 0), 0)
         if (net < 0) sells.push({ name: t.name, v: -net })
         else if (net > 0) buys.push({ name: t.name, v: net })
@@ -647,16 +861,17 @@ const moneyFlow = computed(() => {
  * 週的欄數多，每欄少畫幾個題材，免得擠在一起
  */
 const flowGrain = ref<"week" | "month">("week")
-/** 實際使用的單位：季初、季中、季末只有 4 週，固定每週一欄 */
-const activeGrain = computed(() => (moneyStage.value === "all" ? flowGrain.value : "week"))
+/** 實際使用的單位：4 週與季初、季中、季末只有 4 週，固定每週一欄 */
+const activeGrain = computed(() => (isQuarter.value && moneyStage.value === "all" ? flowGrain.value : "week"))
 /** 每欄最多畫幾個題材：欄數多時少畫一些，免得擠在一起 */
 const flowTop = computed(() => (flowBuckets.value.length > 4 ? 5 : 8))
 
 /** 每一欄涵蓋的週次 (W1 為 0) 與標題 */
 const flowBuckets = computed(() => {
-    const meta = weeks12Meta.value
+    const meta = trackWeeks.value
     if (activeGrain.value === "week") {
-        const stage = MONEY_STAGES.find((x) => x.key === moneyStage.value) ?? MONEY_STAGES[0]
+        // 1 週固定畫上週與這週兩欄
+        const stage = isWeekly.value ? { from: 0, to: span.value - 1 } : activeStage.value
         return meta
             .slice(stage.from, stage.to + 1)
             .map((m, i) => ({ from: stage.from + i, to: stage.from + i, label: m.label, range: m.dateStr }))
@@ -686,16 +901,16 @@ const FLOW_OTHER = "#c9c8c1"
 /** 搬家線小於最大方塊的這個比例就不畫，避免細線糾成一團 */
 const FLOW_MIN_LINK_RATIO = 0.03
 
-/** 題材名稱 → 顏色，依整季 12 週大戶買進金額 (只算買超的週) 排序 */
+/** 題材名稱 → 顏色，依整段期間 (4 週或 12 週) 大戶買進金額 (只算買超的週) 排序 */
 const flowColors = computed(() => {
-    const idx = currentWeekIdx.value
+    const start = trackStart.value
     const map = new Map<string, string>()
-    if (props.period !== 12 || idx < 11) return map
+    if (start < 0) return map
     const ranked = props.heatmap.themes
         .filter((t) => t.amounts)
         .map((t) => ({
             name: t.name,
-            v: (t.amounts ?? []).slice(idx - 11, idx + 1).reduce<number>((a, x) => a + Math.max(0, x ?? 0), 0),
+            v: (t.amounts ?? []).slice(start, start + span.value).reduce<number>((a, x) => a + Math.max(0, x ?? 0), 0),
         }))
         .sort((a, b) => b.v - a.v)
     ranked.slice(0, FLOW_PALETTE.length).forEach((t, i) => map.set(t.name, FLOW_PALETTE[i]))
@@ -710,8 +925,8 @@ const flowLegend = computed(() => [
 ])
 
 const monthFlow = computed(() => {
-    const idx = currentWeekIdx.value
-    if (props.period !== 12 || idx < 11) return null
+    const start = trackStart.value
+    if (start < 0) return null
     const themes = props.heatmap.themes.filter((t) => t.amounts)
     if (!themes.length) return null
 
@@ -720,7 +935,7 @@ const monthFlow = computed(() => {
     const nets = buckets.map((b) => {
         const map = new Map<string, number>()
         for (const t of themes) {
-            const slice = (t.amounts ?? []).slice(idx - 11 + b.from, idx - 11 + b.to + 1)
+            const slice = (t.amounts ?? []).slice(start + b.from, start + b.to + 1)
             map.set(t.name, slice.reduce<number>((a, v) => a + (v ?? 0), 0))
         }
         return map
@@ -958,16 +1173,16 @@ const moneyBarUnit = ref<"amount" | "pct">("amount")
 type MoneyBarItem = { name: string; amount: number; cap: number | null; pct: number | null }
 
 const moneyBarData = computed(() => {
-    const idx = currentWeekIdx.value
-    if (props.period !== 12 || idx < 11) return null
+    const start = trackStart.value
+    if (start < 0) return null
     const themes = props.heatmap.themes.filter((t) => t.amounts)
     if (!themes.length) return null
-    const stage = MONEY_STAGES.find((x) => x.key === moneyStage.value) ?? MONEY_STAGES[0]
+    const stage = activeStage.value
     // 市值取這段期間最後一週
-    const capIdx = idx - 11 + stage.to
+    const capIdx = start + stage.to
 
     const items: MoneyBarItem[] = themes.map((t) => {
-        const slice = (t.amounts ?? []).slice(idx - 11 + stage.from, idx - 11 + stage.to + 1)
+        const slice = (t.amounts ?? []).slice(start + stage.from, start + stage.to + 1)
         const amount = slice.reduce<number>((a, v) => a + (v ?? 0), 0)
         const cap = t.caps?.[capIdx] ?? null
         return { name: t.name, amount, cap, pct: cap ? (amount / cap) * 100 : null }
@@ -1074,7 +1289,7 @@ const moneyBarOption = computed(() => {
 })
 
 // -------------------------------------------------------------
-// 圖表 3：12 週逐週脈動 (每個題材一列 +- 長條圖)
+// 圖表 3：逐週脈動 (每個題材一列 +- 長條圖)
 // -------------------------------------------------------------
 /** 逐週脈動每一列的高度 */
 const PULSE_ROW_HEIGHT = 46
@@ -1083,7 +1298,7 @@ const PULSE_BAR_WIDTH = 22
 
 /** 逐週脈動要畫的題材：買最多 4 個、波段出貨 2 個、賣最多 4 個 */
 const pulseThemes = computed(() => {
-    const items = analysis12.value
+    const items = trackAnalysis.value
     return [
         ...items.slice(0, 4),
         ...items.filter((t) => t.tag === "波段出貨(先買後倒)").slice(0, 2),
@@ -1092,13 +1307,13 @@ const pulseThemes = computed(() => {
 })
 const weeklyOption = computed(() => {
     const c = colors()
-    const items = analysis12.value
+    const items = trackAnalysis.value
     if (!items.length) return {}
 
     const focusThemes = pulseThemes.value
 
-    const meta = weeks12Meta.value
-    // 每個題材一列，時間由左到右 (W1 → W12)，零軸以上是大戶買進、以下是大戶賣出
+    const meta = trackWeeks.value
+    // 每個題材一列，時間由左到右 (W1 → WN)，零軸以上是大戶買進、以下是大戶賣出
     // 所有列共用同一個刻度，取所有週幅度的第 90 百分位，少數特別大的週截斷並標上數字，不會把其他長條壓扁
     const mags = focusThemes.flatMap((t) => t.weeklyValues.map((v) => Math.abs(v))).sort((x, y) => x - y)
     const max = Math.max(0.01, mags[Math.floor(mags.length * 0.9)] ?? 0)
@@ -1186,7 +1401,7 @@ const weeklyOption = computed(() => {
 })
 
 // -------------------------------------------------------------
-// 圖表 4：淨額長條圖 (1 週與 4 週使用)
+// 圖表 4：淨額長條圖 (1 週使用)
 // -------------------------------------------------------------
 const netBarOption = computed(() => {
     const c = colors()
@@ -1255,9 +1470,12 @@ const netBarOption = computed(() => {
     }
 })
 
+/** 是否畫淨額長條圖：沒有逐週資料時，或 1 週的第 5 個分頁 */
+const showNetBar = computed(() => !tracked.value || (isWeekly.value && chartType.value === "weekly"))
+
 /** 圖表當前配置 */
 const activeOption = computed(() => {
-    if (props.period === 12) {
+    if (!showNetBar.value) {
         if (chartType.value === "rank") return rankOption.value
         if (isMonthView.value) return monthOption.value
         if (chartType.value === "moneyBar") return moneyBarOption.value
@@ -1269,7 +1487,7 @@ const activeOption = computed(() => {
 
 /** 圖表高度動態調整 */
 const chartHeight = computed(() => {
-    if (props.period === 12) {
+    if (!showNetBar.value) {
         // 右側要列出全部題材名稱，每個名次約 18px
         if (chartType.value === "rank") return `${Math.max(460, (rankData.value?.total ?? 0) * 18 + 65)}px`
         if (isMonthView.value) return "440px"
@@ -1280,12 +1498,65 @@ const chartHeight = computed(() => {
     return `${Math.max(260, count * 26 + 40)}px`
 })
 
+/** 標籤篩選按鈕：依期間列出該期間使用的標籤與題材數 */
+const tagFilters = computed(() => {
+    const defs: [BehaviorTag, string][] = isWeekly.value
+        ? [["連續買", ""], ["轉買", ""], ["轉賣", ""], ["連續賣", ""], ["持平觀望", ""]]
+        : [
+            ["主力長線鎖碼", "🔒"],
+            ["波段出貨(先買後倒)", "🚨"],
+            ["超跌換手承接", "🔄"],
+            ["持續提款外流", "💸"],
+            ["區間震盪觀望", "⏳"],
+        ]
+    return defs.map(([tag, icon]) => ({
+        tag,
+        icon,
+        count: trackAnalysis.value.filter((t) => t.tag === tag).length,
+    }))
+})
+
 /** 標籤過濾後的題材列表 */
 const filteredAnalysis = computed(() => {
-    const list = analysis12.value
+    const list = trackAnalysis.value
     if (activeTagFilter.value === "ALL") return list
     return list.filter((t) => t.tag === activeTagFilter.value)
 })
+
+// 標籤卡片預設只顯示 3 列，其餘要展開才看得到；每列幾張依畫面寬度而定，所以量格線的欄數
+const TAG_ROWS = 3
+const tagsGrid = ref<HTMLElement | null>(null)
+const tagCols = ref(1)
+const tagsExpanded = ref(false)
+let gridObserver: ResizeObserver | null = null
+
+function measureTagCols(): void {
+    const el = tagsGrid.value
+    if (!el) return
+    const cols = getComputedStyle(el).gridTemplateColumns.split(" ").filter(Boolean).length
+    tagCols.value = Math.max(1, cols)
+}
+
+watch(tagsGrid, (el) => {
+    gridObserver?.disconnect()
+    gridObserver = null
+    if (!el) return
+    gridObserver = new ResizeObserver(measureTagCols)
+    gridObserver.observe(el)
+    measureTagCols()
+})
+
+onBeforeUnmount(() => gridObserver?.disconnect())
+
+watch([activeTagFilter, () => props.period], () => {
+    tagsExpanded.value = false
+})
+
+const tagLimit = computed(() => tagCols.value * TAG_ROWS)
+const visibleAnalysis = computed(() =>
+    tagsExpanded.value ? filteredAnalysis.value : filteredAnalysis.value.slice(0, tagLimit.value),
+)
+const hiddenTagCount = computed(() => Math.max(0, filteredAnalysis.value.length - tagLimit.value))
 </script>
 
 <template>
@@ -1294,7 +1565,7 @@ const filteredAnalysis = computed(() => {
         <div class="conclusion-box">
             <div class="conclusion-toolbar">
                 <span class="toolbar-title">💡 資金流向與輪動總結</span>
-                <div v-if="period === 12" class="view-toggle-group">
+                <div v-if="tracked" class="view-toggle-group">
                     <button
                         type="button"
                         class="toggle-btn"
@@ -1315,7 +1586,7 @@ const filteredAnalysis = computed(() => {
             </div>
 
             <!-- 視角 A：白話故事 -->
-            <div v-if="conclusionMode === 'story' || period !== 12" class="story-content">
+            <div v-if="conclusionMode === 'story' || !tracked" class="story-content">
                 <p class="story-text">{{ storyConclusion }}</p>
             </div>
 
@@ -1345,7 +1616,7 @@ const filteredAnalysis = computed(() => {
                             <span class="chip-diag muted">{{ t.tagDesc }}</span>
                         </div>
                     </div>
-                    <div v-else class="empty-hint muted">本季無顯著符合此特徵之族群</div>
+                    <div v-else class="empty-hint muted">本{{ termWord }}無顯著符合此特徵之族群</div>
                 </div>
             </div>
         </div>
@@ -1355,10 +1626,16 @@ const filteredAnalysis = computed(() => {
             <div class="chart-header">
                 <div class="header-left">
                     <span class="chart-subtitle">
-                        {{ period === 12 ? "一季 (12週) 資金輪動圖表視覺化（以 1 週為單位逐週追蹤）" : "主要流入與流出題材 (前 5 名對照)" }}
+                        {{
+                            !tracked
+                                ? "主要流入與流出題材 (前 5 名對照)"
+                                : isWeekly
+                                    ? "1 週 資金輪動圖表視覺化（上週與這週對照）"
+                                    : `${isQuarter ? "一季 (12 週)" : "4 週"} 資金輪動圖表視覺化（以 1 週為單位逐週追蹤）`
+                        }}
                     </span>
-                    <!-- 12 週時提供 5 種圖表挑選 -->
-                    <div v-if="period === 12" class="chart-type-selector">
+                    <!-- 有逐週資料時提供 5 種圖表挑選 -->
+                    <div v-if="tracked" class="chart-type-selector">
                         <button
                             type="button"
                             class="type-btn"
@@ -1381,7 +1658,7 @@ const filteredAnalysis = computed(() => {
                             :class="{ active: chartType === 'rank' }"
                             @click="chartType = 'rank'"
                         >
-                            12 週排名變化圖
+                            {{ isWeekly ? "上週 / 這週排名變化圖" : `${span} 週排名變化圖` }}
                         </button>
                         <button
                             type="button"
@@ -1397,13 +1674,13 @@ const filteredAnalysis = computed(() => {
                             :class="{ active: chartType === 'weekly' }"
                             @click="chartType = 'weekly'"
                         >
-                            12 週逐週脈動柱圖 (單週增減)
+                            {{ isWeekly ? "淨額長條圖 (這週單週增減)" : `${span} 週逐週脈動柱圖 (單週增減)` }}
                         </button>
                     </div>
                 </div>
 
                 <button
-                    v-if="period !== 12 && simpleDiffs.length > 10"
+                    v-if="showNetBar && simpleDiffs.length > 10"
                     type="button"
                     class="chip flow-toggle"
                     @click="showAll = !showAll"
@@ -1413,10 +1690,11 @@ const filteredAnalysis = computed(() => {
             </div>
 
             <!-- 資金流向圖的期間切換與計算說明 -->
-            <div v-if="period === 12 && (chartType === 'money' || chartType === 'moneyBar')" class="money-head">
-                <div class="money-stages">
+            <div v-if="tracked && (chartType === 'money' || chartType === 'moneyBar')" class="money-head">
+                <!-- 4 週只有全期，不顯示期間切換 -->
+                <div v-if="moneyStages.length > 1" class="money-stages">
                     <button
-                        v-for="st in MONEY_STAGES"
+                        v-for="st in moneyStages"
                         :key="st.key"
                         type="button"
                         class="chip"
@@ -1426,7 +1704,7 @@ const filteredAnalysis = computed(() => {
                         {{ st.label }}
                     </button>
                 </div>
-                <div v-if="isMonthView && moneyStage === 'all'" class="money-stages">
+                <div v-if="isQuarter && isMonthView && moneyStage === 'all'" class="money-stages">
                     <button
                         type="button"
                         class="chip"
@@ -1473,7 +1751,7 @@ const filteredAnalysis = computed(() => {
             </div>
 
             <!-- 圖表本體 -->
-            <div v-if="period === 12 && chartType === 'trend'" class="trend-panels">
+            <div v-if="tracked && chartType === 'trend'" class="trend-panels">
                 <div v-for="g in trendGroups" :key="g.tag" class="trend-panel">
                     <div class="trend-panel-head">
                         <strong>{{ g.label }}</strong>
@@ -1490,26 +1768,26 @@ const filteredAnalysis = computed(() => {
                                 {{ x.theme.name }} {{ signed(x.theme.total) }}%
                             </span>
                         </div>
-                        <VChart class="flow-chart" style="height: 240px" :option="trendPanelOption(g)" autoresize />
+                        <VChart class="flow-chart trend-chart" :option="trendPanelOption(g)" autoresize />
                     </template>
-                    <p v-else class="muted font-11 trend-empty">本季沒有題材屬於這一類</p>
+                    <p v-else class="muted font-11 trend-empty">本{{ termWord }}沒有題材屬於這一類</p>
                 </div>
             </div>
-            <div v-if="period === 12 && isMonthView && monthFlow" class="flow-legend">
+            <div v-if="tracked && isMonthView && monthFlow" class="flow-legend">
                 <span v-for="item in flowLegend" :key="item.name" class="flow-legend-item">
                     <i class="flow-legend-swatch" :style="{ background: item.color }" />
                     {{ item.name }}
                 </span>
             </div>
             <VChart
-                v-if="!(period === 12 && chartType === 'trend')"
+                v-if="!(tracked && chartType === 'trend')"
                 class="flow-chart"
                 :style="{ height: chartHeight }"
                 :option="activeOption"
                 autoresize
             />
             <VChart
-                v-if="period === 12 && isMonthView && monthFlow"
+                v-if="tracked && isMonthView && monthFlow"
                 class="flow-chart"
                 style="height: 170px"
                 :option="outflowOption"
@@ -1517,28 +1795,60 @@ const filteredAnalysis = computed(() => {
             />
 
             <!-- 圖表說明：先一行重點，完整說明摺疊起來，切換分頁時自動收合 -->
-            <div v-if="period === 12" class="chart-guide">
-                <template v-if="chartType === 'trend'">
+            <div v-if="tracked" class="chart-guide">
+                <template v-if="chartType === 'trend' && isWeekly">
                     <p class="guide-lead">
-                        <strong>怎麼看：</strong>每一類一張小圖，全部 {{ analysis12.length }} 個題材都畫出來。線往上代表大戶持股比例在這一季累計增加，往下代表減少。
+                        <strong>怎麼看：</strong>每一類一張小圖，全部 {{ trackAnalysis.length }} 個題材都畫出來。每條線只有上週、這週兩個點，點在 0 以上代表那週大戶在買，以下代表在賣。
+                    </p>
+                    <details :key="chartType" class="guide-more">
+                        <summary>完整說明</summary>
+                        <p>
+                            縱軸是「那一週大戶持股比例增減了幾個百分點」，每個點都是單週的變化，不是累計。滑鼠移到線上可以看每個題材兩週的數值。
+                        </p>
+                        <p>
+                            某一週的變化在 ±{{ FLAT_THRESHOLD }} 個百分點以內時，那一週視為持平，不算買也不算賣，避免把雜訊當成轉向。
+                            例如上週 +0.04、這週 -0.14，上週算持平，歸為「轉賣」而不是「由買轉賣」。
+                        </p>
+                        <p>每個題材以這週的方向為主，再看上週，歸到一類：</p>
+                        <ul>
+                            <li><strong>持平觀望</strong>：這週持平 (不論上週)。</li>
+                            <li><strong>連續買</strong>：上週買、這週也買。</li>
+                            <li><strong>轉買</strong>：上週賣出或持平、這週買進。</li>
+                            <li><strong>轉賣</strong>：上週買進或持平、這週賣出。</li>
+                            <li><strong>連續賣</strong>：上週賣、這週也賣。</li>
+                        </ul>
+                        <p>
+                            各小圖的縱軸刻度依該類題材自動調整；跨圖比較時要看刻度數字，不能只看線的高低。
+                        </p>
+                        <p>適合看：大戶這週是延續上週的方向，還是突然轉向。</p>
+                        <p>不適合看：較長的趨勢。兩週的變化容易受單週雜訊影響，想看波段請切到 4 週或 12 週。</p>
+                    </details>
+                </template>
+
+                <template v-else-if="chartType === 'trend'">
+                    <p class="guide-lead">
+                        <strong>怎麼看：</strong>每一類一張小圖，全部 {{ trackAnalysis.length }} 個題材都畫出來。線往上代表大戶持股比例在這{{ periodText }}累計增加，往下代表減少。
                     </p>
                     <details :key="chartType" class="guide-more">
                         <summary>完整說明</summary>
                         <p>
                             縱軸是「從第 1 週起，大戶持股比例累計增減了幾個百分點」，每個點是到那一週為止的累計值。滑鼠移到線上可以看每個題材當週的累計與單週變化。
                         </p>
-                        <p>每個題材依 12 週的走勢歸到一類 (由上往下判斷，符合就停)：</p>
+                        <p>每個題材依 {{ span }} 週的走勢歸到一類 (由上往下判斷，符合就停)：</p>
                         <ul>
-                            <li><strong>波段出貨 (先買後倒)</strong>：季內最高累計 +1.2 以上，且從高點回落 1.2 以上。圖釘標示峰值。</li>
-                            <li><strong>超跌換手承接</strong>：季內最低累計 -1.2 以下，且從低點回升 1.2 以上。圖釘標示谷底。</li>
-                            <li><strong>主力長線鎖碼</strong>：季底累計 +1.5 以上，且買超 7 週以上或最後兩週仍在買。</li>
-                            <li><strong>持續提款外流</strong>：季底累計 -1.5 以下。</li>
+                            <li><strong>波段出貨 (先買後倒)</strong>：{{ termWord }}內最高累計 +{{ tagThresholds.turn }} 以上，且從高點回落 {{ tagThresholds.turn }} 以上。圖釘標示峰值。</li>
+                            <li><strong>超跌換手承接</strong>：{{ termWord }}內最低累計 -{{ tagThresholds.turn }} 以下，且從低點回升 {{ tagThresholds.turn }} 以上。圖釘標示谷底。</li>
+                            <li><strong>主力長線鎖碼</strong>：{{ termWord }}末累計 +{{ tagThresholds.total }} 以上，且買超 {{ tagThresholds.weeks }} 週以上或最後兩週仍在買。</li>
+                            <li><strong>持續提款外流</strong>：{{ termWord }}末累計 -{{ tagThresholds.total }} 以下。</li>
                             <li><strong>區間震盪觀望</strong>：以上都不符合，買賣互見。</li>
                         </ul>
+                        <p v-if="!isQuarter">
+                            門檻是 12 週的一半 (比照頁面上方排行的門檻)。4 週只有 4 個點，「先衝高再被倒貨」和一般震盪不容易分開，標籤僅供參考，想看完整的波段請切到 12 週。
+                        </p>
                         <p>
                             各小圖的縱軸刻度依該類題材自動調整，不然波動小的類別會被壓成一條線；跨圖比較時要看刻度數字，不能只看線的高低。
                         </p>
-                        <p>適合看：大戶這一季對每個題材的態度是長抱、先買後倒、低接，還是一路撤出。</p>
+                        <p>適合看：大戶這{{ periodText }}對每個題材的態度是長抱、先買後倒、低接，還是一路撤出。</p>
                         <p>不適合看：錢的規模。百分點是持股比例，大型類股動一點點，金額可能就很大；看金額請切到「資金流向」或「資金進出」。</p>
                     </details>
                 </template>
@@ -1550,7 +1860,7 @@ const filteredAnalysis = computed(() => {
                     <details :key="chartType" class="guide-more">
                         <summary>完整說明</summary>
                         <p>
-                            以{{ unit }}為單位{{ activeGrain === "month" ? " (每 4 週一個月)" : "" }}，共 {{ flowBuckets.length }} 欄。顏色代表題材，整季買最多的 {{ FLOW_PALETTE.length }} 個題材各有固定顏色，其他題材是淺灰。
+                            以{{ unit }}為單位{{ activeGrain === "month" ? " (每 4 週一個月)" : "" }}，共 {{ flowBuckets.length }} 欄。顏色代表題材，{{ isQuarter ? "整季" : `這 ${span} 週` }}買最多的 {{ FLOW_PALETTE.length }} 個題材各有固定顏色，其他題材是淺灰。
                         </p>
                         <p>
                             較粗、較深的帶子：上{{ unit }}買的題材這{{ unit }}還在買，錢留在原地。較淡的細線：上{{ unit }}買的題材這{{ unit }}被賣，賣出的錢按比例流向這{{ unit }}買進的題材(推估，不是實際紀錄；太小的不畫)。滑鼠移到方塊上可以只看相關的線。
@@ -1560,12 +1870,28 @@ const filteredAnalysis = computed(() => {
                         </p>
                         <p>
                             適合看：大戶的錢實際放在哪裡、規模多大，以及每{{ unit }}是在進場還是撤退。
-                            <template v-if="moneyStage === 'all' && flowGrain === 'week'">單週的雜訊比較大，想看大方向可以切到「每月」。</template>
+                            <template v-if="isQuarter && moneyStage === 'all' && flowGrain === 'week'">單週的雜訊比較大，想看大方向可以切到「每月」。</template>
+                            <template v-else-if="!isQuarter">單週的雜訊比較大，想看大方向可以切到 12 週的「每月」。</template>
                             <template v-else-if="moneyStage !== 'all'">這是全季圖只看其中 4 週，題材顏色與全季相同。</template>
                         </p>
                         <p>
                             不適合看：大戶對哪個題材最積極。方塊大小是金額，大型類股天生就比較大；要公平比較請看「資金進出排行」的「佔類股市值 (%)」。
                         </p>
+                    </details>
+                </template>
+
+                <template v-else-if="chartType === 'rank' && isWeekly">
+                    <p class="guide-lead">
+                        <strong>怎麼看：</strong>把全部 {{ rankData?.total ?? 0 }} 個題材依單週增減排名，左邊是上週的名次、右邊是這週；線往上代表這週名次進步，往下代表退步。
+                    </p>
+                    <details :key="chartType" class="guide-more">
+                        <summary>完整說明</summary>
+                        <p>名次依「那一週大戶持股比例的增減」排序，兩週各自排名，不做累計。</p>
+                        <p>
+                            彩色線：這週排名前 {{ RANK_FINAL_TOP }} 名的題材，加上上週還在前 {{ RANK_PEAK_TOP }} 名、這週掉出前段班的題材 (最多 {{ RANK_FALLEN_MAX }} 個，挑掉得最多的，畫成虛線)。其他題材畫成淡灰細線，滑鼠移上去可看全部名次。
+                        </p>
+                        <p>適合看：誰這週突然衝上來、誰從前段班掉下去。</p>
+                        <p>不適合看：差距大小與較長的趨勢；要看幅度請切到「籌碼行為」，看趨勢請切到 4 週或 12 週。</p>
                     </details>
                 </template>
 
@@ -1579,9 +1905,10 @@ const filteredAnalysis = computed(() => {
                             名次依「從第 1 週起大戶持股比例的累計增減」排序，每個點都是實際資料，不需要推估題材之間的流向。
                         </p>
                         <p>
-                            彩色線：第 12 週排名前 {{ RANK_FINAL_TOP }} 名的題材，加上曾經衝進前 {{ RANK_PEAK_TOP }} 名、後來掉出前段班的題材(最多 {{ RANK_FALLEN_MAX }} 個，挑掉得最多的)。其他題材畫成淡灰細線，滑鼠移上去可看全部名次。
+                            彩色線：第 {{ span }} 週 (最後一週) 排名前 {{ RANK_FINAL_TOP }} 名的題材，加上曾經衝進前 {{ RANK_PEAK_TOP }} 名、後來掉出前段班的題材(最多 {{ RANK_FALLEN_MAX }} 個，挑掉得最多的)。其他題材畫成淡灰細線，滑鼠移上去可看全部名次。
                         </p>
-                        <p>前兩週的累計只有一兩週資料，名次跳動大，判斷「是否衝進前幾名」從第 3 週起算。</p>
+                        <p v-if="isQuarter">前兩週的累計只有一兩週資料，名次跳動大，判斷「是否衝進前幾名」從第 3 週起算。</p>
+                        <p v-else>第 1 週的累計只有一週資料，名次跳動大，判斷「是否衝進前幾名」從第 2 週起算。4 週只有 4 個點，名次變化會比 12 週少。</p>
                         <p>適合看：誰後來居上、誰曾經領先又被超越，也就是大戶偏好的順序怎麼變。</p>
                         <p>不適合看：差距大小。第 1 名和第 2 名可能差很多也可能只差一點；要看幅度請切到「籌碼行為」。</p>
                     </details>
@@ -1593,7 +1920,7 @@ const filteredAnalysis = computed(() => {
                     </p>
                     <details :key="chartType" class="guide-more">
                         <summary>完整說明</summary>
-                        <p>比例 = 大戶買賣金額 ÷ 類股總市值 (取期間最後一週)。上方可以切換比較期間。</p>
+                        <p>比例 = 大戶買賣金額 ÷ 類股總市值 (取期間最後一週)。<template v-if="isQuarter">上方可以切換比較期間。</template></p>
                         <p>適合看：大戶對哪個題材買得最積極、賣得最兇。不論類股大小，都用同一把尺比較。</p>
                         <p>不適合看：錢的實際規模。小類股比例高，金額可能不大，要看金額請切回「金額 (億元)」。</p>
                     </details>
@@ -1606,7 +1933,7 @@ const filteredAnalysis = computed(() => {
                     <details :key="chartType" class="guide-more">
                         <summary>完整說明</summary>
                         <p>
-                            金額 = 大戶持股變化 × 收盤價。這段期間全部題材合計淨賣出約 {{ moneyFlow.totalOut.toFixed(0) }} 億、淨買進約 {{ moneyFlow.totalIn.toFixed(0) }} 億。上方可以切換比較期間。
+                            金額 = 大戶持股變化 × 收盤價。這段期間全部題材合計淨賣出約 {{ moneyFlow.totalOut.toFixed(0) }} 億、淨買進約 {{ moneyFlow.totalIn.toFixed(0) }} 億。<template v-if="isQuarter">上方可以切換比較期間。</template>
                         </p>
                         <p>適合看：大戶的錢實際放在哪裡、規模多大。</p>
                         <p>
@@ -1618,6 +1945,18 @@ const filteredAnalysis = computed(() => {
                     </details>
                 </template>
 
+                <template v-else-if="chartType === 'weekly' && isWeekly">
+                    <p class="guide-lead">
+                        <strong>怎麼看：</strong>這週各題材大戶持股比例的增減，紅色往右是大戶在收，綠色往左是大戶在賣；預設列出前 5 名與後 5 名。
+                    </p>
+                    <details :key="chartType" class="guide-more">
+                        <summary>完整說明</summary>
+                        <p>單位是百分點，是這週和上週相比的單週變化。右上角可以展開全部題材。</p>
+                        <p>適合看：這週大戶最偏好、最不看好的題材。</p>
+                        <p>不適合看：方向有沒有轉變；要和上週比較請切到「籌碼行為」或「排名變化」。</p>
+                    </details>
+                </template>
+
                 <template v-else-if="chartType === 'weekly'">
                     <p class="guide-lead">
                         <strong>怎麼看：</strong>每列一個題材，每根長條是那一週大戶持股比例的增減；紅色往上是大戶買進，綠色往下是大戶賣出。
@@ -1625,22 +1964,23 @@ const filteredAnalysis = computed(() => {
                     <details :key="chartType" class="guide-more">
                         <summary>完整說明</summary>
                         <p>
-                            畫出的題材：12 週累計增加最多的 4 個、「波段出貨」的前 2 個、累計減少最多的 4 個 (重複的只畫一次)，目前共 {{ pulseThemes.length }} 個。
+                            畫出的題材：{{ span }} 週累計增加最多的 4 個、「波段出貨」的前 2 個、累計減少最多的 4 個 (重複的只畫一次)，目前共 {{ pulseThemes.length }} 個。
                         </p>
                         <p>
                             所有列共用同一個刻度，取各週幅度的第 90 百分位為上限；少數特別大的週會被截斷，並在長條旁標出實際數字，這樣其他長條才不會被壓扁。滑鼠移到長條上可看確切數值。
                         </p>
                         <p>適合看：大戶進出的節奏，例如是連續好幾週慢慢買，還是某一週突然大量進出。</p>
-                        <p>不適合看：整季累計的結果與全部題材的比較；請切到「籌碼行為」或「12 週排名」。</p>
+                        <p>不適合看：{{ isQuarter ? "整季" : `${span} 週` }}累計的結果與全部題材的比較；請切到「籌碼行為」或「{{ span }} 週排名」。</p>
                     </details>
                 </template>
             </div>
         </div>
 
-        <!-- 12 週專屬：1 週逐週 (W1 ~ W12) 行為標籤診斷卡片 -->
-        <div v-if="period === 12 && analysis12.length" class="tags-section">
+
+        <!-- 行為標籤診斷卡片：4 週、12 週逐週 (W1 ~ WN)，1 週為上週與這週對照 -->
+        <section v-if="tracked && trackAnalysis.length" class="tags-section" data-nav="題材動向標籤">
             <div class="tags-header">
-                <div class="tags-title">🏷️ 1 週精度籌碼特徵標籤診斷 (W1 ~ W12 逐週脈動)</div>
+                <div class="tags-title">🏷️ 題材動向標籤 {{ isWeekly ? "(上週與這週對照)" : `(W1 ~ W${span} 逐週脈動)` }}</div>
                 <div class="tags-filter-bar">
                     <button
                         type="button"
@@ -1648,46 +1988,24 @@ const filteredAnalysis = computed(() => {
                         :class="{ active: activeTagFilter === 'ALL' }"
                         @click="activeTagFilter = 'ALL'"
                     >
-                        全部 ({{ analysis12.length }})
+                        全部 ({{ trackAnalysis.length }})
                     </button>
                     <button
+                        v-for="f in tagFilters"
+                        :key="f.tag"
                         type="button"
                         class="filter-chip"
-                        :class="{ active: activeTagFilter === '主力長線鎖碼' }"
-                        @click="activeTagFilter = '主力長線鎖碼'"
+                        :class="{ active: activeTagFilter === f.tag }"
+                        @click="activeTagFilter = f.tag"
                     >
-                        🔒 主力長線鎖碼 ({{ analysis12.filter((t) => t.tag === '主力長線鎖碼').length }})
-                    </button>
-                    <button
-                        type="button"
-                        class="filter-chip"
-                        :class="{ active: activeTagFilter === '波段出貨(先買後倒)' }"
-                        @click="activeTagFilter = '波段出貨(先買後倒)'"
-                    >
-                        🚨 波段出貨(先買後倒) ({{ analysis12.filter((t) => t.tag === '波段出貨(先買後倒)').length }})
-                    </button>
-                    <button
-                        type="button"
-                        class="filter-chip"
-                        :class="{ active: activeTagFilter === '持續提款外流' }"
-                        @click="activeTagFilter = '持續提款外流'"
-                    >
-                        💸 持續提款外流 ({{ analysis12.filter((t) => t.tag === '持續提款外流').length }})
-                    </button>
-                    <button
-                        type="button"
-                        class="filter-chip"
-                        :class="{ active: activeTagFilter === '區間震盪觀望' }"
-                        @click="activeTagFilter = '區間震盪觀望'"
-                    >
-                        ⏳ 區間震盪觀望 ({{ analysis12.filter((t) => t.tag === '區間震盪觀望').length }})
+                        {{ f.icon ? `${f.icon} ` : "" }}{{ f.tag }} ({{ f.count }})
                     </button>
                 </div>
             </div>
 
-            <div class="theme-cards-grid">
+            <div ref="tagsGrid" class="theme-cards-grid">
                 <div
-                    v-for="t in filteredAnalysis"
+                    v-for="t in visibleAnalysis"
                     :key="t.id"
                     class="theme-card"
                 >
@@ -1699,30 +2017,30 @@ const filteredAnalysis = computed(() => {
                     </div>
 
                     <div class="card-total-row">
-                        <span class="muted font-11">12 週累計：</span>
+                        <span class="muted font-11">{{ isWeekly ? "這週：" : `${span} 週累計：` }}</span>
                         <span
                             class="total-pill"
                             :class="{ buy: t.total > 0, sell: t.total < 0 }"
                         >
                             {{ signed(t.total) }}%
                         </span>
-                        <span class="peak-note muted">
+                        <span v-if="!isWeekly" class="peak-note muted">
                             (買超 {{ t.buyWeeks }} 週 / 賣超 {{ t.sellWeeks }} 週)
                         </span>
                     </div>
 
-                    <!-- 12 週逐週數值序列 (W1 ~ W12 小藥丸) -->
+                    <!-- 逐週數值序列 (W1 ~ WN 小藥丸) -->
                     <div class="weekly-pills-row">
-                        <span class="muted font-10">逐週脈動：</span>
+                        <span class="muted font-10">{{ isWeekly ? "兩週對照：" : "逐週脈動：" }}</span>
                         <div class="pills-track">
                             <span
                                 v-for="(val, wIdx) in t.weeklyValues"
                                 :key="wIdx"
                                 class="w-pill"
                                 :class="{ buy: val > 0, sell: val < 0, neutral: val === 0 }"
-                                :title="`${weeks12Meta[wIdx]?.fullLabel}：${signed(val)}%`"
+                                :title="`${trackWeeks[wIdx]?.fullLabel}：${signed(val)}%`"
                             >
-                                W{{ wIdx + 1 }}: {{ signed(val) }}%
+                                {{ trackWeeks[wIdx]?.label }}: {{ signed(val) }}%
                             </span>
                         </div>
                     </div>
@@ -1732,7 +2050,16 @@ const filteredAnalysis = computed(() => {
                     </div>
                 </div>
             </div>
-        </div>
+
+            <button
+                v-if="hiddenTagCount > 0"
+                type="button"
+                class="tags-toggle"
+                @click="tagsExpanded = !tagsExpanded"
+            >
+                {{ tagsExpanded ? "收起" : `展開其餘 ${hiddenTagCount} 個題材` }}
+            </button>
+        </section>
     </div>
 </template>
 
@@ -1746,15 +2073,15 @@ const filteredAnalysis = computed(() => {
     background: var(--surface-0);
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 12px 16px;
-    margin-bottom: 14px;
+    padding: 10px 16px;
+    margin-bottom: 10px;
 }
 
 .conclusion-toolbar {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
     flex-wrap: wrap;
     gap: 8px;
 }
@@ -1768,6 +2095,7 @@ const filteredAnalysis = computed(() => {
 .view-toggle-group,
 .chart-type-selector {
     display: inline-flex;
+    flex-wrap: wrap;
     border: 1px solid var(--border);
     border-radius: 5px;
     overflow: hidden;
@@ -1781,6 +2109,7 @@ const filteredAnalysis = computed(() => {
     color: var(--text-secondary);
     font-size: 12px;
     padding: 4px 10px;
+    white-space: nowrap;
     cursor: pointer;
     transition: all 0.15s ease;
 }
@@ -1800,8 +2129,8 @@ const filteredAnalysis = computed(() => {
 
 .story-text {
     margin: 0;
-    line-height: 1.75;
-    font-size: 13.5px;
+    line-height: 1.55;
+    font-size: 13px;
     color: var(--text-primary);
     white-space: pre-line;
 }
@@ -1996,6 +2325,24 @@ const filteredAnalysis = computed(() => {
     margin-top: 10px;
 }
 
+.tags-toggle {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    padding: 6px 0;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.tags-toggle:hover {
+    color: var(--text-primary);
+    border-color: var(--text-primary);
+}
+
 .theme-card {
     background: var(--surface-1);
     border: 1px solid var(--border);
@@ -2006,16 +2353,27 @@ const filteredAnalysis = computed(() => {
     gap: 6px;
 }
 
+/* 五張小圖排成上三下二，整區不用捲動就能看完 */
 .trend-panels {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+@media (max-width: 900px) {
+    .trend-panels {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.trend-chart {
+    height: 160px;
 }
 
 .trend-panel {
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 10px 12px 4px;
+    padding: 8px 10px 2px;
     min-width: 0;
 }
 
@@ -2027,11 +2385,15 @@ const filteredAnalysis = computed(() => {
     font-size: 13px;
 }
 
+/* 圖例最多兩行，題材多的分類 (如區間震盪) 在框內捲動，避免小圖高低不齊撐高整區 */
 .trend-panel-legend {
     display: flex;
     flex-wrap: wrap;
     gap: 2px 12px;
     margin-top: 6px;
+    max-height: 40px;
+    overflow-y: auto;
+    scrollbar-width: thin;
     font-size: 11px;
 }
 

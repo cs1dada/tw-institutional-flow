@@ -201,11 +201,20 @@ RETAIL_IN_PCT = 3
 RETAIL_OUT_PCT = -1.5
 # 往回比較的週數 (排行的 4 週、12 週累計) 與回測往後看的週數
 WINDOWS = (4, 12)
+# 回測時出現訊號後持有的週數 (往後看)，比排行多一個 1 週的短線
+HORIZONS = (1, 4, 12)
 # 位階以近一年 (52 週) 為範圍，資料少於 8 週時不計算
 RANK_WEEKS = 52
 RANK_MIN_WEEKS = 8
 # 連續增加或減少達這個週數，回測時當作一個訊號
 STREAK_SIGNAL = 3
+# 各比較期間判斷訊號的門檻，與頁面上方 1 / 4 / 12 週按鈕的排行相同：
+# 期間越長累計變化越大，門檻跟著放寬 (大戶比例百分點、股東人數 %)
+PERIOD_THRESHOLDS = {
+    1: {"big": BIG_THRESHOLD, "retail_in": RETAIL_IN_PCT, "retail_out": RETAIL_OUT_PCT},
+    4: {"big": 1, "retail_in": 6, "retail_out": -3},
+    12: {"big": 2, "retail_in": 12, "retail_out": -6},
+}
 
 
 class History:
@@ -453,29 +462,30 @@ SIGNALS = (
 )
 
 
-def _signals(history, code, date):
-    """某一週符合的訊號，判斷方式與頁面的排行、解讀相同"""
-    big = history.big_diff(code, date)
-    retail = history.holders_pct(code, date)
+def _signals(history, code, date, period=1):
+    """某一週往回 period 週的累計變化符合哪些訊號，判斷方式與頁面的排行、解讀相同"""
+    big = history.big_diff(code, date, period)
+    retail = history.holders_pct(code, date, period)
     if big is None or retail is None:
         return []
+    th = PERIOD_THRESHOLDS[period]
     hits = []
-    if big >= BIG_THRESHOLD:
+    if big >= th["big"]:
         hits.append("big_up")
-    if big <= -BIG_THRESHOLD:
+    if big <= -th["big"]:
         hits.append("big_down")
-    if retail >= RETAIL_IN_PCT:
+    if retail >= th["retail_in"]:
         hits.append("retail_in")
-    if retail <= RETAIL_OUT_PCT:
+    if retail <= th["retail_out"]:
         hits.append("retail_out")
     streak = history.streak(code, date)
     if streak >= STREAK_SIGNAL:
         hits.append("streak_up")
     if streak <= -STREAK_SIGNAL:
         hits.append("streak_down")
-    if big >= BIG_THRESHOLD and retail <= 0:
+    if big >= th["big"] and retail <= 0:
         hits.append("gather")
-    if big <= -BIG_THRESHOLD and retail >= 1:
+    if big <= -th["big"] and retail >= 1:
         hits.append("scatter")
     return hits
 
@@ -498,19 +508,19 @@ def _stats(returns):
     }
 
 
-def _backtest(history, codes):
-    """訊號出現後 4 週、12 週的股價表現，與同期所有題材股相比。
+def _backtest(history, codes, period=1):
+    """訊號出現後 1 週、4 週、12 週的股價表現，與同期所有題材股相比。
 
-    以每一週為起點，對每檔題材股判斷訊號，再看之後 k 週的漲跌。
+    以每一週為起點，對每檔題材股用往回 period 週的累計變化判斷訊號，再看之後 k 週的漲跌。
     對照組是同一批週次的全部題材股，超額報酬才看得出訊號有沒有用。
     """
-    horizons = WINDOWS
+    horizons = HORIZONS
     buckets = {key: {k: [] for k in horizons} for key, _ in SIGNALS}
     baseline = {k: [] for k in horizons}
     for date in history.weeks:
         for code in codes:
-            hits = _signals(history, code, date)
-            if not hits and history.big_diff(code, date) is None:
+            hits = _signals(history, code, date, period)
+            if not hits and history.big_diff(code, date, period) is None:
                 continue
             for k in horizons:
                 ret = history.price_pct(code, date, -k)
@@ -534,6 +544,7 @@ def _backtest(history, codes):
             )
         rows.append(row)
     return {
+        "period": period,
         "horizons": list(horizons),
         "baseline": {f"{name}_{k}w": base[k][name] for k in horizons for name in ("count", "avg", "median", "win")},
         "rows": rows,
@@ -624,6 +635,7 @@ def build_analysis(conn, history=None):
     history = history or History(conn)
     themes = load_themes()
     codes = sorted(classified_codes(themes))
+    backtests = {p: _backtest(history, codes, p) for p in PERIOD_THRESHOLDS}
     return {
         "weeks": len(history.weeks),
         "first_week": history.weeks[0] if history.weeks else None,
@@ -635,7 +647,9 @@ def build_analysis(conn, history=None):
             "retail_out": RETAIL_OUT_PCT,
             "streak": STREAK_SIGNAL,
         },
-        "backtest": _backtest(history, codes),
+        # 依頁面上方的比較期間各算一份；backtest 保留 1 週版本給舊版前端
+        "backtests": {str(p): backtests[p] for p in PERIOD_THRESHOLDS},
+        "backtest": backtests[1],
         "heatmap": _heatmap(history, themes),
     }
 

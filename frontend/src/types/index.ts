@@ -1058,6 +1058,15 @@ export interface HoldersBacktestRow {
     [field: string]: string | number | null
 }
 
+/** 訊號出現後往後 horizons 週的股價表現，與同期全部題材股相比 */
+export interface HoldersBacktest {
+    /** 判斷訊號時往回比較的週數；舊版匯出的檔案沒有這個欄位 (等同 1 週) */
+    period?: number
+    horizons: number[]
+    baseline: Record<string, number | null>
+    rows: HoldersBacktestRow[]
+}
+
 /** 題材股的籌碼訊號回測與題材輪動熱力圖 */
 export interface HoldersAnalysis {
     weeks: number
@@ -1065,11 +1074,10 @@ export interface HoldersAnalysis {
     last_week: string | null
     stock_count: number
     thresholds: { big: number; retail_in: number; retail_out: number; streak: number }
-    backtest: {
-        horizons: number[]
-        baseline: Record<string, number | null>
-        rows: HoldersBacktestRow[]
-    }
+    /** 1 週的回測，舊版匯出的檔案只有這一份 */
+    backtest: HoldersBacktest
+    /** 依比較期間 ("1" / "4" / "12") 各算一份，訊號用往回該期間的累計變化判斷；舊版匯出的檔案沒有這個欄位 */
+    backtests?: Record<string, HoldersBacktest>
     heatmap: {
         weeks: string[]
         themes: {
