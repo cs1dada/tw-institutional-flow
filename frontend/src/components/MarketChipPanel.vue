@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
  * 大盤籌碼圖：上方為指數收盤，下方為三大法人買賣超或融資融券，
- * 可切換上市／上櫃與指標。下方另列「融資餘額與今天相近的日子」，
- * 對照同樣的融資水位當時指數在哪裡。
+ * 可切換上市／上櫃與指標。融資頁同時畫維持率與融資餘額，下方另列
+ * 「融資餘額與今天相近的日子」，對照同樣的融資水位當時指數在哪裡。
  *
  * 官方全市場擔保維持率與追繳處分來自臺股儀表板，只有全市場合計，
  * 切換上市上櫃時畫的是同一條；期貨未平倉也一樣不分上市上櫃。
@@ -64,6 +64,9 @@ const closes = computed(() => {
     return new Map(source.map((row) => [row.date, row.close]))
 })
 
+/** 融資頁第三層 (融資餘額) 的上緣位置 */
+const MARGIN_TOP = 462
+
 /** 指數均線，與 K 線圖的日線相同 */
 const MA_SIZES = [5, 20, 60] as const
 
@@ -119,7 +122,8 @@ const colorNote = computed(() => {
     const info = metricInfo.value
     const officialSince = credit.value.length ? `官方資料從 ${formatDate(credit.value[0].date)} 起。` : ""
     if (info.key === "maintenance") {
-        return "下方綠線為本站估算的民間版：各檔融資張數乘以收盤價的總市值，除以融資餘額，只看融資部位。"
+        return "最下方為融資餘額，紅色為較前一日增加，綠色為減少，三角形標出近期融資餘額與今天相近的日子 (見下方表格)。"
+            + "中間綠線為本站估算的民間版：各檔融資張數乘以收盤價的總市值，除以融資餘額，只看融資部位。"
             + `彩色線為臺股儀表板公布的官方全市場擔保維持率，以投資人整戶融資融券合併計算，通常比民間版高，且不分上市上櫃。${officialSince}`
             + "彩色線依玉山證券投顧對官方維持率的分區上色，虛線為各分區的門檻，配色參考 TradingView 技術分析的總結儀表："
             + "150% 以下恐慌 (深紅)、150% 到 160% 偏低 (紅)、160% 到 180% 正常 (灰)、"
@@ -210,7 +214,7 @@ const chartOption = computed(() => {
     const isFutures = info.kind === "futures"
 
     /**
-     * 圖上要標出的日子，與下方表格一致：融資餘額為相近日、維持率為最低的 5 天、
+     * 圖上要標出的日子，與下方表格一致：維持率為最低的 5 天、
      * VIX 為台美各自最高的 3 天、追繳戶數暴增的日子。上方指數線一律標日期；維持率與 VIX 另外在下方的線上標數值。
      * 美股日期不一定是台股交易日，對到下一個台股交易日。
      */
@@ -222,9 +226,7 @@ const chartOption = computed(() => {
     const tradingDates = rows.value.map((row) => row.date)
     const toTrading = (date: string) => tradingDates.find((day) => day >= date) ?? date
     let marks: Mark[] = []
-    if (metric.value === "margin") {
-        marks = (similar.value?.days ?? []).map((day) => ({ date: day.date, color: c.trust }))
-    } else if (isCalls) {
+    if (isCalls) {
         marks = callPeaks(credit.value).map((point) => ({
             date: point.date,
             color: c.trust,
@@ -248,6 +250,65 @@ const chartOption = computed(() => {
         })
     }
     const markByDate = new Map(marks.map((mark) => [mark.date, mark]))
+
+    /**
+     * 融資頁的第三層：融資餘額柱狀圖，與今天相近的日子在柱上標日期。
+     * 第三層的 x 軸為索引 2、y 軸為索引 3 (索引 2 是期貨的右軸)
+     */
+    const similarDates = new Set((similar.value?.days ?? []).map((day) => day.date))
+    const marginValues = data.map((row) => row.margin)
+    const marginSeries = isMaintenance
+        ? [
+            {
+                name: "融資餘額",
+                type: "bar",
+                xAxisIndex: 2,
+                yAxisIndex: 3,
+                data: marginValues.map((value, index) => {
+                    if (value === null) {
+                        return "-"
+                    }
+                    // 以較前一日增減上色
+                    const prev = index ? marginValues[index - 1] : null
+                    const sign = prev === null ? 0 : value - prev
+                    return { value, itemStyle: { color: sign >= 0 ? buyColor() : sellColor(), opacity: 0.55 } }
+                }),
+            },
+            {
+                name: "相近日",
+                type: "scatter",
+                xAxisIndex: 2,
+                yAxisIndex: 3,
+                data: data.map((row, index) => {
+                    if (!similarDates.has(row.date) || row.margin === null) {
+                        return "-"
+                    }
+                    return {
+                        value: row.margin,
+                        symbolRotate: 180,
+                        symbolOffset: [0, -9],
+                        itemStyle: { color: c.trust },
+                        label: {
+                            show: true,
+                            position: "top",
+                            distance: 12,
+                            color: c.trust,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            backgroundColor: `${c.surface}e6`,
+                            padding: [1, 3],
+                            borderRadius: 3,
+                            formatter: labels[index],
+                        },
+                    }
+                }),
+                symbol: "triangle",
+                symbolSize: [11, 9],
+                tooltip: { show: false },
+                z: 5,
+            },
+        ]
+        : []
 
     /** 三角形尖端指向標記的那一點：在線上方時朝下，在線下方時朝上 */
     const markerSeries = (lower: boolean) => ({
@@ -525,6 +586,14 @@ const chartOption = computed(() => {
                 top: 250,
                 textStyle: { color: c.text, fontSize: 13, fontWeight: 600 },
             },
+            ...(isMaintenance
+                ? [{
+                    text: `${MARKET_LABELS[marketKey.value]}融資餘額（億）`,
+                    left: 64,
+                    top: MARGIN_TOP - 24,
+                    textStyle: { color: c.text, fontSize: 13, fontWeight: 600 },
+                }]
+                : []),
         ],
         grid: [
             // 上方留白給標題與相近日的標記，否則最高點附近的標記會被裁掉
@@ -538,6 +607,17 @@ const chartOption = computed(() => {
                 backgroundColor: c.surface0,
                 borderWidth: 0,
             },
+            ...(isMaintenance
+                ? [{
+                    left: 64,
+                    right: gridRight,
+                    top: MARGIN_TOP,
+                    height: 120,
+                    show: true,
+                    backgroundColor: c.surface0,
+                    borderWidth: 0,
+                }]
+                : []),
         ],
         xAxis: [
             {
@@ -553,8 +633,19 @@ const chartOption = computed(() => {
                 data: labels,
                 axisLine: { lineStyle: { color: c.border } },
                 axisTick: { show: false },
-                axisLabel: { color: c.muted, fontSize: 11 },
+                // 融資頁的日期標在最下面的餘額圖
+                axisLabel: { show: !isMaintenance, color: c.muted, fontSize: 11 },
             },
+            ...(isMaintenance
+                ? [{
+                    type: "category",
+                    gridIndex: 2,
+                    data: labels,
+                    axisLine: { lineStyle: { color: c.border } },
+                    axisTick: { show: false },
+                    axisLabel: { color: c.muted, fontSize: 11 },
+                }]
+                : []),
         ],
         yAxis: [
             {
@@ -601,6 +692,17 @@ const chartOption = computed(() => {
                 axisLabel: { color: c.muted, fontSize: 11, formatter: (value: number) => `${Math.round(value / 1000)}k` },
                 splitLine: { show: false },
             },
+            ...(isMaintenance
+                ? [{
+                    gridIndex: 2,
+                    scale: true,
+                    splitNumber: 3,
+                    axisLine: { show: false },
+                    axisTick: { show: false },
+                    axisLabel: { color: c.muted, fontSize: 11 },
+                    splitLine: { lineStyle: { color: c.border, type: "dashed" } },
+                }]
+                : []),
         ],
         series: [
             {
@@ -646,6 +748,7 @@ const chartOption = computed(() => {
             markerSeries(false),
             ...metricSeries,
             ...(isMaintenance || isVix || isCalls ? [markerSeries(true)] : []),
+            ...marginSeries,
         ],
     }
 })
@@ -702,18 +805,40 @@ const chartOption = computed(() => {
             </div>
         </div>
 
-        <VChart v-if="visible.length" class="chart chip-chart" :option="chartOption" autoresize />
+        <VChart
+            v-if="visible.length"
+            class="chart chip-chart"
+            :class="{ 'is-tall': metric === 'maintenance' }"
+            :option="chartOption"
+            autoresize
+        />
         <p v-else class="notice">尚無籌碼資料，請先執行 python scripts/ingest_market.py</p>
         <p v-if="metric === 'futures' && !futures.length" class="notice">尚無期貨未平倉資料，請先執行 python scripts/daily_job.py</p>
         <p v-if="visible.length" class="panel-note color-note">{{ colorNote }}</p>
 
-        <!-- 相近日只跟融資餘額有關，切到其他指標時不顯示 -->
-        <div v-if="metric === 'margin' && similar && similar.days.length" class="similar">
+        <!-- 摘要與對照表，內容跟著上方選的指標換 -->
+        <MarketChipInsight
+            :rows="rows"
+            :closes="closes"
+            :metric="metric"
+            :metric-label="metricInfo.label"
+            :market-label="MARKET_LABELS[marketKey]"
+            :index-name="indexName"
+            :tw-vix="twVix"
+            :us-vix="usVix"
+            :credit="credit"
+            :credit-history="market?.credit_history"
+            :futures="futures"
+            :market-key="marketKey"
+        />
+
+        <!-- 相近日只跟融資有關，只在融資頁顯示 -->
+        <div v-if="metric === 'maintenance' && similar && similar.days.length" class="similar">
             <h3 class="table-title">
                 {{ MARKET_LABELS[marketKey] }}融資餘額跟今天相近的日子
                 <span class="similar-note">
                     近三個月內 (不含最近 5 天) 融資餘額最接近的 3 天，彼此至少相隔 5 個交易日；
-                    也就是指數線上三角形標出的日子
+                    也就是融資餘額圖上三角形標出的日子
                 </span>
             </h3>
             <div class="table-wrap">
@@ -756,23 +881,6 @@ const chartOption = computed(() => {
                 同樣的融資水位，指數卻比當時低，代表散戶槓桿沒有跟著退場；反之則是籌碼相對乾淨。
             </p>
         </div>
-
-        <!-- 其他指標的摘要與對照表，內容跟著上方選的指標換 -->
-        <MarketChipInsight
-            v-if="metric !== 'margin'"
-            :rows="rows"
-            :closes="closes"
-            :metric="metric"
-            :metric-label="metricInfo.label"
-            :market-label="MARKET_LABELS[marketKey]"
-            :index-name="indexName"
-            :tw-vix="twVix"
-            :us-vix="usVix"
-            :credit="credit"
-            :credit-history="market?.credit_history"
-            :futures="futures"
-            :market-key="marketKey"
-        />
     </section>
 </template>
 
@@ -792,6 +900,11 @@ const chartOption = computed(() => {
 
 .chip-chart {
     height: 450px;
+}
+
+/* 融資頁多一層融資餘額圖 */
+.chip-chart.is-tall {
+    height: 612px;
 }
 
 .color-note {

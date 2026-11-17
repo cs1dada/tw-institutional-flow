@@ -18,8 +18,8 @@ export const CHIP_METRICS = [
     { key: "foreign", label: "外資", unit: "億", kind: "net" },
     { key: "trust", label: "投信", unit: "億", kind: "net" },
     { key: "dealer", label: "自營商", unit: "億", kind: "net" },
-    { key: "margin", label: "融資餘額", unit: "億", kind: "level" },
-    { key: "maintenance", label: "融資維持率", unit: "%", kind: "level" },
+    // 融資維持率與融資餘額合併為同一頁：下方兩層分別畫維持率與餘額
+    { key: "maintenance", label: "融資維持率與餘額", unit: "%", kind: "level" },
     { key: "short_units", label: "融券餘額", unit: "張", kind: "level" },
     // 融資餘額占總市值，下方說明另列信用交易占成交比重與年度歷史
     { key: "margin_ratio", label: "融資槓桿", unit: "%", kind: "ratio" },
