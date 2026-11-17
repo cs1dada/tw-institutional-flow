@@ -10,14 +10,14 @@
  */
 import { computed, nextTick, onMounted, ref, watch } from "vue"
 
-import { loadHolders, loadHoldersAnalysis, loadHoldersStock, loadHoldersWeek } from "@/api/dataSource"
+import { loadHolders, loadHoldersAnalysis, loadHoldersStock, loadHoldersWeek, loadThemes } from "@/api/dataSource"
 import BarChart from "@/components/BarChart.vue"
 import HoldersLevelChart from "@/components/HoldersLevelChart.vue"
 import HoldersScatter from "@/components/HoldersScatter.vue"
 import HoldersThemeFlowChart from "@/components/HoldersThemeFlowChart.vue"
 import HoldersThemeHeatmap from "@/components/HoldersThemeHeatmap.vue"
 import HoldersTrendChart from "@/components/HoldersTrendChart.vue"
-import type { HoldersAnalysis, HoldersBacktestRow, HoldersRow, HoldersStock, HoldersWeek } from "@/types"
+import type { HoldersAnalysis, HoldersBacktestRow, HoldersRow, HoldersStock, HoldersWeek, ThemesData } from "@/types"
 import { formatDate, signed, signedPct } from "@/utils/format"
 
 type Board = "big_up" | "big_down" | "retail_in" | "retail_out" | "streak_up" | "non_inst" | "mid_up"
@@ -35,7 +35,7 @@ const BOARD_LABELS: Record<Board, string> = {
 }
 
 const BOARD_NOTES: Record<Board, string> = {
-    big_up: "千張大戶比例上升最多的個股，股票往大戶手上集中",
+    big_up: "千張大戶比例上升最多的個股，股票往大戶手上集中。比例只看集中程度，不代表買進金額大",
     big_down: "千張大戶比例下降最多的個股，大戶 (含外資、投信) 在賣",
     retail_in: "股東人數增加最多 (%) 的個股，散戶進場，常見於急跌後的承接",
     retail_out: "股東人數減少最多 (%) 的個股，散戶離開，股票往少數人手上集中",
@@ -75,14 +75,25 @@ const TREND_MIN_WEEKS = 2
 /** 產業至少要有這麼多檔可比較的個股，平均值才有參考價值 */
 const INDUSTRY_MIN_STOCKS = 3
 
+/** 「各題材 / 產業大戶持股比例變化」的分組方式：題材 (與題材輪動同一套分類) 或證交所產業別 */
+type GroupBy = "theme" | "industry"
+
+const GROUP_LABELS: Record<GroupBy, string> = { theme: "題材", industry: "產業" }
+
 interface IndustryRow {
+    /** 題材或產業的名稱 */
     industry: string
     count: number
     bigDiff: number
     holdersPct: number
     bigUp: number
     bigDown: number
+    /** 成員個股，依千張大戶比例變化由高到低 */
+    members: { code: string; name: string; bigDiff: number }[]
 }
+
+/** 提示框最多列出幾檔成員，超過的只顯示檔數 */
+const TOOLTIP_MEMBERS = 5
 
 const weeks = ref<{ date: string; stock_count: number }[]>([])
 const selectedWeek = ref("")
@@ -99,6 +110,9 @@ const error = ref<string | null>(null)
 const showGuide = ref(false)
 const analysis = ref<HoldersAnalysis | null>(null)
 const analysisError = ref<string | null>(null)
+/** 題材分類，用來把個股歸到題材；載入失敗時只能用產業別分組 */
+const themesData = ref<ThemesData | null>(null)
+const groupBy = ref<GroupBy>("theme")
 
 /** 目前比較期間的門檻 */
 const th = computed(() => PERIOD_THRESHOLDS[period.value])
@@ -200,16 +214,37 @@ const summary = computed(() => {
     }
 })
 
-/** 依產業彙總千張大戶比例的平均變化，看這週大戶在收哪些族群 */
+/** 每檔個股所屬的題材，一檔可能屬於好幾個題材 */
+const themesOfCode = computed(() => {
+    const map = new Map<string, string[]>()
+    for (const theme of themesData.value?.themes ?? []) {
+        const codes = new Set(theme.segments.flatMap((seg) => seg.stocks.map((st) => st.code)))
+        for (const code of codes) {
+            const list = map.get(code) ?? []
+            list.push(theme.name)
+            map.set(code, list)
+        }
+    }
+    return map
+})
+
+/** 實際使用的分組方式，題材分類還沒載入或載入失敗時用產業別 */
+const activeGroupBy = computed<GroupBy>(() => (groupBy.value === "theme" && themesData.value ? "theme" : "industry"))
+
+/**
+ * 依題材或產業彙總千張大戶比例的平均變化，看這段期間大戶在收哪些族群。
+ * 一檔股票屬於多個題材時，每個題材都算一次，與題材輪動的算法相同。
+ */
 const industryRows = computed<IndustryRow[]>(() => {
     const groups = new Map<string, HoldersRow[]>()
+    const byTheme = activeGroupBy.value === "theme"
     for (const row of comparable.value) {
-        if (!row.industry) {
-            continue
+        const names = byTheme ? (themesOfCode.value.get(row.code) ?? []) : (row.industry ? [row.industry] : [])
+        for (const name of names) {
+            const list = groups.get(name) ?? []
+            list.push(row)
+            groups.set(name, list)
         }
-        const list = groups.get(row.industry) ?? []
-        list.push(row)
-        groups.set(row.industry, list)
     }
     const avg = (list: HoldersRow[], pick: (r: HoldersRow) => number) =>
         list.reduce((sum, r) => sum + pick(r), 0) / list.length
@@ -222,6 +257,9 @@ const industryRows = computed<IndustryRow[]>(() => {
             holdersPct: avg(list, (r) => r.holders_pct),
             bigUp: list.filter((r) => r.big_diff >= th.value.big).length,
             bigDown: list.filter((r) => r.big_diff <= -th.value.big).length,
+            members: list
+                .map((r) => ({ code: r.code, name: r.name ?? r.code, bigDiff: r.big_diff }))
+                .sort((a, b) => b.bigDiff - a.bigDiff),
         }))
         .sort((a, b) => b.bigDiff - a.bigDiff)
 })
@@ -236,12 +274,24 @@ const displayIndustryRows = computed(() => {
     return industryRows.value.slice(0, 5)
 })
 
+/**
+ * 長條圖的提示框：平均值之外，列出成員個股由高到低的變化 (最多 TOOLTIP_MEMBERS 檔)，
+ * 看得出平均是普遍上升，還是被少數幾檔撐起來
+ */
 function industryTooltip(row: IndustryRow): string {
+    const shown = row.members.slice(0, TOOLTIP_MEMBERS).map((m) => {
+        const color = m.bigDiff > 0 ? "var(--buy)" : m.bigDiff < 0 ? "var(--sell)" : "inherit"
+        return `　${m.code} ${m.name}　<span style="color:${color}">${signed(m.bigDiff)}</span>`
+    })
+    const rest = row.members.length - shown.length
     return [
         `<strong>${row.industry}</strong> (${row.count} 檔)`,
         `千張大戶平均　${signed(row.bigDiff)} 百分點`,
         `股東人數平均　${signedPct(row.holdersPct, 1)}`,
         `大戶在收 ${row.bigUp} 檔，在賣 ${row.bigDown} 檔`,
+        `個股 (比例變化由高到低)：`,
+        ...shown,
+        ...(rest > 0 ? [`　…其餘 ${rest} 檔`] : []),
     ].join("<br>")
 }
 
@@ -659,6 +709,14 @@ onMounted(async () => {
         .catch((err) => {
             analysisError.value = (err as Error).message
         })
+    // 題材分類只用於「各題材大戶持股比例變化」的分組，失敗時改用產業別
+    loadThemes()
+        .then((data) => {
+            themesData.value = data
+        })
+        .catch(() => {
+            themesData.value = null
+        })
     try {
         weeks.value = (await loadHolders()).weeks
         if (weeks.value.length) {
@@ -792,21 +850,46 @@ onMounted(async () => {
                 />
             </section>
 
-            <section v-if="industryRows.length" class="panel holders-chart-panel" data-nav="大戶在收哪些產業">
+            <section v-if="industryRows.length" class="panel holders-chart-panel" data-nav="大戶持股比例變化">
                 <div class="panel-head">
                     <div class="panel-head-flex">
-                        <h2>大戶在收哪些產業 {{ showAllIndustries ? "" : "(前 5 名)" }}</h2>
-                        <button
-                            v-if="industryRows.length > 5"
-                            type="button"
-                            class="chip flow-toggle"
-                            @click="showAllIndustries = !showAllIndustries"
-                        >
-                            {{ showAllIndustries ? "收合為前 5 名" : `查看全部 ${industryRows.length} 個產業` }}
-                        </button>
+                        <!-- 標題強調是「比例」的變化，避免被誤會成買賣金額 (金額請看題材輪動的資金流向圖) -->
+                        <h2>各{{ GROUP_LABELS[activeGroupBy] }}大戶持股比例變化 {{ showAllIndustries ? "" : "(前 5 名)" }}</h2>
+                        <div class="group-controls">
+                            <div class="chip-row">
+                                <button
+                                    v-for="(label, key) in GROUP_LABELS"
+                                    :key="key"
+                                    type="button"
+                                    class="chip"
+                                    :class="{ 'is-active': activeGroupBy === key }"
+                                    :disabled="key === 'theme' && !themesData"
+                                    @click="groupBy = key"
+                                >
+                                    {{ label }}
+                                </button>
+                            </div>
+                            <button
+                                v-if="industryRows.length > 5"
+                                type="button"
+                                class="chip flow-toggle"
+                                @click="showAllIndustries = !showAllIndustries"
+                            >
+                                {{ showAllIndustries ? "收合為前 5 名" : `查看全部 ${industryRows.length} 個${GROUP_LABELS[activeGroupBy]}` }}
+                            </button>
+                        </div>
                     </div>
                     <p class="panel-note">
-                        各產業千張大戶比例在 {{ PERIOD_LABELS[period] }} 內的平均變化 (百分點)，只列可比較個股達 {{ INDUSTRY_MIN_STOCKS }} 檔以上的產業。
+                        各{{ GROUP_LABELS[activeGroupBy] }}千張大戶比例在 {{ PERIOD_LABELS[period] }} 內的平均變化 (百分點)，只列可比較個股達 {{ INDUSTRY_MIN_STOCKS }} 檔以上的{{ GROUP_LABELS[activeGroupBy] }}。
+                        看的是持股比例，不是買賣金額：小型股比例動幾個百分點，實際金額可能不多；金額請看下方題材輪動的資金流向圖。
+                        <template v-if="activeGroupBy === 'theme'">
+                            題材與下方題材輪動是同一套分類，一檔股票屬於多個題材時每個題材都會算到；
+                            這裡固定以千張為大戶門檻，題材輪動則依股價調整門檻，數字會略有不同。
+                        </template>
+                        <template v-else>
+                            產業別採用證交所「國際證券辨識號碼 (ISIN) 一覽表」的產業分類，上市、上櫃共用同一套名稱，
+                            與下方的題材分類不同 (例如 PCB 個股多屬電子零組件業)。
+                        </template>
                     </p>
                 </div>
                 <BarChart
@@ -863,6 +946,10 @@ onMounted(async () => {
                                 <td>
                                     {{ row.code }} {{ row.name ?? "" }}
                                     <span class="muted">{{ row.industry ?? "" }}</span>
+                                    <!-- 所屬題材，與上方「各題材大戶持股比例變化」對照 -->
+                                    <span v-if="themesOfCode.get(row.code)?.length" class="row-themes">
+                                        ・{{ themesOfCode.get(row.code)?.join("、") }}
+                                    </span>
                                 </td>
                                 <td class="num" :class="polarity(row.price_pct)">{{ signedPct(row.price_pct, 1) }}</td>
                                 <td class="num">
@@ -1588,10 +1675,23 @@ onMounted(async () => {
     flex-direction: column;
 }
 
+/* 至少維持圖表自己算的高度 (題材多時長條圖會比較高)，同一列另一張圖較高時再撐滿 */
 .charts-row .holders-chart-panel :deep(.chart-tall),
 .charts-row .holders-chart-panel :deep(.chart) {
-    flex: 1;
+    flex: 1 0 auto;
     min-height: 380px;
+}
+
+.row-themes {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.group-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .panel-head-flex {

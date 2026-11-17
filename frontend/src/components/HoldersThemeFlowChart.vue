@@ -1728,6 +1728,13 @@ const hiddenTagCount = computed(() => Math.max(0, filteredAnalysis.value.length 
                         (以 {{ formatDate(stageRange.base) }} 的持股為起點，每週和前一週相比)
                     </template>
                 </p>
+                <!-- 每一欄只有單週的淨買進，容易被誤讀成整段期間的排名 (例如某題材只有最後一週在買、前幾週大賣) -->
+                <p v-if="chartType === 'money' && stageRange && stageRange.count > 1" class="money-hint">
+                    注意：每一欄只看<strong>那一週</strong>淨買進最多的題材，淨賣出的題材不會畫出來。
+                    最後一欄的第一名不代表這 {{ stageRange.count }} 週合計買最多，
+                    合計誰買誰賣請切到
+                    <button type="button" class="link-btn" @click="chartType = 'moneyBar'">資金進出排行</button>。
+                </p>
                 <div v-if="moneyFlow && chartType === 'moneyBar'" class="money-stages">
                     <button
                         type="button"
@@ -2520,6 +2527,30 @@ const hiddenTagCount = computed(() => Math.max(0, filteredAnalysis.value.length 
     font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
+}
+
+.money-hint {
+    flex-basis: 100%;
+    margin: 0;
+    padding: 6px 10px;
+    border-left: 3px solid var(--series-trust);
+    background: var(--surface-1);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* 外觀像文字連結的按鈕，點了切換圖表 */
+.link-btn {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--text-primary);
+    font: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
 }
 
 .money-stages {
