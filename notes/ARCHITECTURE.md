@@ -295,7 +295,7 @@ frontend/                    前端 (Vue 3 + TypeScript + Vite)
     SinoQuoteView.vue        永豐報價 (/sino，僅本機且需金鑰)
   src/components/            圖表與側邊導覽
   src/utils/                 計算邏輯 (類股聚合、K 線聚合、格式化、主題)
-  public/pwa-*.png           PWA 圖示，不納入版控，由 make_icons.py 產生
+  public/pwa-*.png           PWA 圖示 (logo A：衝刺錢幣)，不納入版控，由 make_icons.py 產生
 
 dist/                        npm run build 的產物，不納入版控
 

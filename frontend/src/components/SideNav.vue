@@ -16,6 +16,9 @@ import { useRoute } from "vue-router"
 
 import { isStatic } from "@/api/dataSource"
 
+/** 本機開發版 (vite dev) 時在品牌名稱旁標示「本機」 */
+const isDev = import.meta.env.DEV
+
 interface NavItem {
     to: string
     label: string
@@ -35,9 +38,9 @@ const ITEMS: NavItem[] = [
     { to: "/etf", label: "主動式 ETF", desc: "持股與資金動向", prefix: true },
     { to: "/intraday", label: "盤中觀察", desc: "類股即時強弱", apiOnly: true },
     { to: "/index", label: "大盤指數", desc: "K 線、法人、融資與 VIX" },
-    { to: "/themes", label: "題材分類", desc: "題材、環節與個股" },
-    { to: "/valuation", label: "估值趨勢矩陣", desc: "前瞻本益比 × 均線走勢" },
     { to: "/holders", label: "籌碼分布", desc: "集保股權分散：大戶與散戶 (每週)" },
+    { to: "/valuation", label: "估值趨勢矩陣", desc: "前瞻本益比 × 均線走勢" },
+    { to: "/themes", label: "題材分類", desc: "題材、環節與個股" },
     { to: "/quote", label: "即時行情", desc: "富果：微台、大盤與個股", quoteOnly: true },
     { to: "/sino", label: "永豐行情", desc: "Shioaji：大台、大盤與個股", sinoOnly: true },
 ]
@@ -211,7 +214,35 @@ watch(
 
 <template>
     <nav class="sidebar">
-        <div class="sidebar-brand">台股法人動向</div>
+        <div class="sidebar-brand">
+            <!-- 與分頁圖示 (index.html) 相同的 logo：金幣拖著速度線往前跑 -->
+            <svg class="brand-logo" viewBox="0 0 64 64" aria-hidden="true">
+                <rect width="64" height="64" rx="14" fill="#e34948" />
+                <g stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0.85">
+                    <line x1="8" y1="30" x2="20" y2="30" />
+                    <line x1="12" y1="39" x2="22" y2="39" />
+                    <line x1="8" y1="48" x2="18" y2="48" />
+                </g>
+                <circle cx="38" cy="36" r="17" fill="#ffd34d" stroke="#fff" stroke-width="3" />
+                <text
+                    x="38"
+                    y="44"
+                    font-size="22"
+                    font-weight="700"
+                    text-anchor="middle"
+                    fill="#b5651d"
+                    font-family="Arial, sans-serif"
+                >$</text>
+            </svg>
+            <div class="brand-text">
+                <strong class="brand-name">
+                    跟著錢錢跑
+                    <!-- 本機開發版才顯示，跟正式網站分得出來 -->
+                    <span v-if="isDev" class="dev-badge">本機</span>
+                </strong>
+                <span class="brand-sub">法人・ETF・大戶籌碼</span>
+            </div>
+        </div>
         <div v-for="item in items" :key="item.to" class="nav-group">
             <RouterLink v-slot="{ isActive, navigate }" :to="item.to" custom>
                 <button

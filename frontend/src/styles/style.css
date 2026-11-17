@@ -372,13 +372,54 @@ h2 {
     border-radius: 8px;
 }
 
+/* 本機開發版的標籤，顏色與本機版的藍色圖示一致 */
+.dev-badge {
+    margin-left: 2px;
+    padding: 1px 4px;
+    letter-spacing: 0;
+    border-radius: 4px;
+    background: #2a78d6;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
+/* 品牌區：logo 在左，名稱與副標兩行在右 */
 .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 0 8px 12px;
     margin-bottom: 8px;
     border-bottom: 1px solid var(--border);
     color: var(--text-primary);
-    font-size: 14px;
+}
+
+.brand-logo {
+    flex: none;
+    width: 30px;
+    height: 30px;
+}
+
+.brand-text {
+    min-width: 0;
+}
+
+.brand-name {
+    display: block;
+    font-size: 16px;
     font-weight: 700;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+.brand-sub {
+    display: block;
+    margin-top: 1px;
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
 }
 
 .nav-item {
