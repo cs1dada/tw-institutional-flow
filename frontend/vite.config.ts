@@ -1,3 +1,4 @@
+import { copyFileSync } from "node:fs"
 import { fileURLToPath, URL } from "node:url"
 
 import vue from "@vitejs/plugin-vue"
@@ -6,13 +7,24 @@ import { VitePWA } from "vite-plugin-pwa"
 
 // 用相對路徑，放在哪一層子目錄都能運作。
 // GitHub Pages 的網址含 repo 名稱 (cs1dada.github.io/tw-institutional-flow/)，
-// 若用絕對路徑 /assets/... 會被解讀成 cs1dada.github.io/assets/... 而失效
+// 若用絕對路徑 /assets/... 會被解讀成 cs1dada.github.io/assets/... 而失效。
+// 網址不帶 # 之後頁面可能位在任何一層，相對路徑由 index.html 的 <base> 指定基準
 const BASE = "./"
 
 export default defineConfig(({ command }) => ({
     base: command === "build" ? BASE : "/",
     plugins: [
         vue(),
+        {
+            // GitHub Pages 找不到檔案時會送 404.html。複製一份 index.html，
+            // 直接開啟 /etf/daily 這類網址時拿到的就是網站本身，由前端路由顯示頁面
+            name: "spa-404-fallback",
+            apply: "build",
+            closeBundle() {
+                const outDir = fileURLToPath(new URL("../dist/", import.meta.url))
+                copyFileSync(`${outDir}index.html`, `${outDir}404.html`)
+            },
+        },
         VitePWA({
             registerType: "autoUpdate",
             includeAssets: ["apple-touch-icon.png"],

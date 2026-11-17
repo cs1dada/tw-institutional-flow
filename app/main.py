@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import config
 from app.api.etf_routes import router as etf_router
@@ -124,7 +125,25 @@ def index():
     return HTMLResponse(html)
 
 
+class SpaStaticFiles(StaticFiles):
+    """找不到檔案時改送網站本身，由前端路由依網址顯示頁面。
+
+    前端網址不帶 # (例如 /etf/daily)，直接開啟或重新整理時伺服器上沒有這個檔案。
+    只處理頁面網址；/api 與帶副檔名的資源 (js、json 等) 仍回 404，避免錯誤被掩蓋。
+    """
+
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            # Windows 上傳進來的路徑以反斜線分隔
+            parts = path.replace("\\", "/").split("/")
+            if exc.status_code != 404 or parts[0] == "api" or "." in parts[-1]:
+                raise
+            return index()
+
+
 # 建置產物內的資源以相對路徑引用，因此掛在根目錄下
 if DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
-    app.mount("/", StaticFiles(directory=DIST_DIR), name="dist")
+    app.mount("/", SpaStaticFiles(directory=DIST_DIR), name="dist")

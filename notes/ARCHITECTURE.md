@@ -285,7 +285,7 @@ frontend/                    前端 (Vue 3 + TypeScript + Vite)
   .env.development           開發模式：mode=api
   .env.production            正式建置：mode=static，報價與盤中頁關閉
   src/api/dataSource.ts      依模式決定讀 API 或 JSON
-  src/router.ts              hash 路由，GitHub Pages 不會 404
+  src/router.ts              history 路由，靠 404.html 讓 GitHub Pages 直接開深層網址
   src/views/                 六個功能頁
     IndustryFlowView.vue     類股資金流向 (/)
     EtfView.vue              主動式 ETF 與經理人成本 (/etf)
@@ -330,7 +330,9 @@ GitHub Pages 的網址包含 repo 名稱 (`cs1dada.github.io/tw-institutional-fl
 絕對路徑會少了 repo 名稱而 404。因此：
 
 - Vite 正式建置時設定 `base: "./"`，資源檔一律以相對路徑引用
-- 路由採 hash 模式 (`#/etf`)，重新整理時伺服器只會收到根路徑
+- 路由採 history 模式 (`/etf`)，建置時複製 `index.html` 為 `404.html`，
+  直接開啟或重新整理深層網址時 GitHub Pages 會送出網站本身；
+  `index.html` 開頭依網域寫入 `<base>`，相對路徑才不受頁面層級影響
 - 資料檔路徑寫成 `data/day/*.json`，不加開頭的 `/`
 
 **2. 模式旗標**

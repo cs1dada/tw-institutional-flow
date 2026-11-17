@@ -78,5 +78,12 @@ src/
 
 ## 路由
 
-使用 hash 模式 (`#/index`)。GitHub Pages 只會送檔案，
-history 模式直接開啟 `/etf` 這類路徑會得到 404。
+使用 history 模式，網址不帶 # (例如 `/tw-institutional-flow/etf/daily`)。
+GitHub Pages 只會送檔案，直接開啟 `/etf` 這類路徑本來會得到 404，因此：
+
+- 建置時把 `index.html` 複製一份為 `404.html` (見 `vite.config.ts`)，
+  找不到的路徑拿到的就是網站本身，再由前端路由顯示頁面 (HTTP 狀態碼仍是 404，不影響瀏覽)
+- `index.html` 開頭依網域寫入 `<base>`：GitHub Pages 為 `/tw-institutional-flow/`，
+  其他環境為 `/`，相對路徑的資源與資料檔才不會因頁面層級而找錯位置
+- 舊的 `#/index` 網址 (書籤、手機桌面捷徑) 由同一段程式自動轉成新網址
+- 本機 FastAPI 找不到的頁面網址同樣回傳網站本身 (`app/main.py` 的 `SpaStaticFiles`)

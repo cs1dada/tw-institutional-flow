@@ -3,6 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+    網址不用 # (例如 /tw-institutional-flow/etf/daily)，頁面可能位在任何一層，
+    相對路徑 (./assets、data/*.json) 一律以網站根目錄為準，必須放在其他資源之前。
+    GitHub Pages 的網站在 repo 名稱的子目錄下，其他環境 (本機開發、FastAPI) 都在根目錄。
+-->
+<script>
+    (function () {
+        var base = location.hostname === "cs1dada.github.io" ? "/tw-institutional-flow/" : "/";
+        document.write('<base href="' + base + '">');
+        // 舊版網址用 # (.../#/index)，書籤與手機桌面捷徑可能還留著，轉成新網址
+        if (location.hash.indexOf("#/") === 0) {
+            history.replaceState(null, "", base + location.hash.slice(2));
+        }
+    })();
+</script>
 <title>台股法人動向</title>
 <meta name="theme-color" content="#fcfcfb">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">

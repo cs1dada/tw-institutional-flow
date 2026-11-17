@@ -1,4 +1,4 @@
-import { createRouter, createWebHashHistory } from "vue-router"
+import { createRouter, createWebHistory } from "vue-router"
 
 import DailyView from "@/views/DailyView.vue"
 import IndexChartView from "@/views/IndexChartView.vue"
@@ -15,11 +15,16 @@ import EtfView from "@/views/EtfView.vue"
 import HoldersView from "@/views/HoldersView.vue"
 
 /**
- * 用 hash 模式而非 history 模式：GitHub Pages 只會送檔案，
- * 直接開啟 /etf 這種路徑會得到 404，hash 路由則不需要伺服器配合。
+ * 用 history 模式，網址不帶 # (例如 /tw-institutional-flow/etf/daily)。
+ *
+ * GitHub Pages 只會送檔案，直接開啟 /etf 這種路徑本來會得到 404；
+ * 建置時把 index.html 複製一份為 404.html (見 vite.config.ts)，
+ * 找不到的路徑就會拿到網站本身，再由這裡依網址顯示對應頁面。
+ *
+ * 根目錄取自 index.html 的 <base>：GitHub Pages 為 /tw-institutional-flow/，其他環境為 /
  */
 export const router = createRouter({
-    history: createWebHashHistory(),
+    history: createWebHistory(new URL(document.baseURI).pathname),
     routes: [
         { path: "/", component: IndustryFlowView },
         {
