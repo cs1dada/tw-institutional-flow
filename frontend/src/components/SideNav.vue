@@ -34,7 +34,7 @@ interface NavItem {
 }
 
 const ITEMS: NavItem[] = [
-    { to: "/", label: "類股資金流向", desc: "三大法人買賣超" },
+    { to: "/", label: "法人資金流向", desc: "買賣超熱力圖與排行" },
     { to: "/etf", label: "主動式 ETF", desc: "持股與資金動向", prefix: true },
     { to: "/intraday", label: "盤中觀察", desc: "類股即時強弱", apiOnly: true },
     { to: "/index", label: "大盤指數", desc: "K 線、法人、融資與 VIX" },

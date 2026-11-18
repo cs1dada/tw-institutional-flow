@@ -31,7 +31,7 @@ export default defineConfig(({ command }) => ({
             manifest: {
                 name: "跟著錢錢跑",
                 short_name: "跟著錢錢跑",
-                description: "台股三大法人類股資金流向、主動式 ETF 持股與大盤指數 K 線",
+                description: "台股法人資金流向、主動式 ETF 持股與大盤指數 K 線",
                 lang: "zh-Hant-TW",
                 theme_color: "#fcfcfb",
                 background_color: "#f5f5f3",
