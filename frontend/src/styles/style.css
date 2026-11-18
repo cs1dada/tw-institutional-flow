@@ -683,19 +683,74 @@ section[data-nav] {
     scroll-margin-top: 16px;
 }
 
+/* 類股資金分布：摘要、圖例與說明開關接在同一行，完整說明預設收合 */
+.treemap-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    align-items: center;
+    margin-top: 3px;
+}
+
+.treemap-summary .panel-note {
+    margin: 0;
+}
+
+/* 標題區撐滿整列，圖例才推得到最右邊 */
+.treemap-head {
+    flex: 1;
+    min-width: 0;
+}
+
+.treemap-summary .change-legend,
+.treemap-summary .flow-legend {
+    margin-left: auto;
+}
+
+.flow-legend {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.flow-legend .swatch-sell {
+    margin-left: 10px;
+}
+
+.note-toggle {
+    flex: none;
+    padding: 2px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-1);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.note-toggle:hover {
+    color: var(--text-primary);
+}
+
+.treemap-note {
+    margin: 0 0 10px;
+}
+
 /* 類股資金分布：漲跌幅色階圖例 */
 .change-legend {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 2px;
-    margin: 0 0 8px;
     font-size: 11px;
 }
 
 .change-legend-step {
-    min-width: 36px;
-    padding: 2px 4px;
+    min-width: 32px;
+    padding: 1px 3px;
     color: #ffffff;
     text-align: center;
     font-variant-numeric: tabular-nums;

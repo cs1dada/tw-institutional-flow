@@ -5,7 +5,7 @@
  * 後端只給當日原始資料，類股組成、排行、下鑽明細全部在前端算 (utils/flow.ts)，
  * 因此切換法人別、納入 ETF 等操作都不需要重新請求。
  */
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 
 import { loadDay, loadHistory, loadMeta, loadThemeHistory, loadThemes } from "@/api/dataSource"
 import FlowTreemap from "@/components/FlowTreemap.vue"
@@ -65,6 +65,40 @@ const colorBy = ref<"change" | "flow">("change")
 const areaBy = ref<"tier" | "amount">("tier")
 /** 漲跌幅色階圖例，色盲模式切換時跟著變 */
 const changeSteps = computed(() => changeLegend())
+/** 分布圖的完整說明很長，預設只顯示一句摘要 (treemapSummary)，矩形圖才不會被擠到畫面外 */
+const treemapNoteOpen = ref(false)
+/**
+ * 顯示個股時矩形圖較高。分布圖是頁面第一個區塊，剛進頁面時就要能看到整張圖，
+ * 因此高度取「視窗高度減去圖在頁面上的起點」：篩選列在不同寬度下列數不同，
+ * 用量測的才準。上限維持原本的 620px，下限避免格子太擠
+ */
+const TREEMAP_MAX_HEIGHT = 620
+const TREEMAP_MIN_HEIGHT = 360
+// 圖下緣與視窗底部保留的距離 (含區塊的下內距)
+const TREEMAP_BOTTOM_GAP = 28
+const treemapWrap = ref<HTMLElement | null>(null)
+const tallTreemapHeight = ref(TREEMAP_MAX_HEIGHT)
+
+function fitTreemap() {
+    const el = treemapWrap.value
+    if (!el) {
+        return
+    }
+    const top = el.getBoundingClientRect().top + window.scrollY
+    const room = window.innerHeight - top - TREEMAP_BOTTOM_GAP
+    tallTreemapHeight.value = Math.round(Math.min(TREEMAP_MAX_HEIGHT, Math.max(TREEMAP_MIN_HEIGHT, room)))
+}
+
+async function refitTreemap() {
+    await nextTick()
+    fitTreemap()
+}
+
+onMounted(() => {
+    window.addEventListener("resize", fitTreemap, { passive: true })
+    refitTreemap()
+})
+onBeforeUnmount(() => window.removeEventListener("resize", fitTreemap))
 const drill = ref<string | null>(null)
 const selected = ref<string | null>(null)
 
@@ -118,12 +152,12 @@ const treemapRows = computed(() => {
 })
 
 const treemapTitle = computed(() =>
-    drill.value ? `${drill.value}　個股資金分布` : `${unitLabel.value}資金分布`,
+    drill.value ? `${drill.value}　個股資金熱力圖` : `${unitLabel.value}資金熱力圖`,
 )
 
 const treemapNote = computed(() => {
     const flowLegend = `<span class="swatch swatch-buy"></span>買超　<span class="swatch swatch-sell"></span>賣超`
-    const changeText = "顏色為當日漲跌幅，跌越重越深綠、漲越多越深紅（色階見下方）"
+    const changeText = "顏色為當日漲跌幅，跌越重越深綠、漲越多越深紅（色階見上方）"
     const byChange = colorBy.value === "change"
     const tierNote = areaBy.value === "tier"
         ? "（依金額分級：10 億以下、10–25、25–50、50–100、100 億以上，級內再依金額微調大小）"
@@ -144,6 +178,19 @@ const treemapNote = computed(() => {
         ? `；${changeText}，${unitLabel.value}的漲跌幅以主要個股的買賣超金額加權`
         : `，${flowLegend}`
     return `面積為買賣超金額規模${tierNote}${unitNote}。點擊${unitLabel.value}可下鑽至個股。${coverage}`
+})
+
+/** 預設顯示的一句話摘要；分級方式、切分檔數等細節放在「完整說明」 */
+const treemapSummary = computed(() => {
+    const sell = cvdMode.value ? "藍色" : "綠色"
+    // 摘要要和色階圖例排在同一行，字數盡量精簡
+    const color = colorBy.value === "change" ? "顏色為漲跌幅" : `紅買超、${sell}賣超`
+    if (drill.value) {
+        return `面積為個股買賣超金額，${color}；共 ${drillStocks.value.length} 檔，`
+            + `${tradedDrillStocks.value.length} 檔有買賣超`
+    }
+    const inner = showStocks.value ? "，內含主要個股" : ""
+    return `面積為${unitLabel.value}買賣超淨額${inner}，${color}，點擊可下鑽`
 })
 
 /* ===== 排行圖 ===== */
@@ -349,6 +396,9 @@ watch(groupMode, async (mode) => {
     selected.value = flowItems.value.length ? flowItems.value[0].industry : null
 })
 
+// 說明展開、圖例切換、下鑽或資料載入後，圖的起點會變，重新計算高度
+watch([treemapNoteOpen, colorBy, drill, showStocks, treemapRows], refitTreemap)
+
 onMounted(async () => {
     try {
         const meta = await loadMeta()
@@ -391,7 +441,7 @@ function dateLabel(item: DateItem): string {
     <section class="view">
         <header class="page-head">
             <div>
-                <h1>台股三大法人類股資金流向</h1>
+                <h1>台股法人資金流向</h1>
                 <p class="subtitle">
                     上市 + 上櫃合併統計，金額為<strong>估算值</strong>（買賣超股數 × 當日收盤價），單位億元
                 </p>
@@ -504,39 +554,57 @@ function dateLabel(item: DateItem): string {
             </label>
         </div>
 
-        <section class="panel" data-nav="類股資金分布">
+        <section class="panel" data-nav="資金熱力圖">
             <div class="panel-head panel-head-row">
-                <div>
+                <div class="treemap-head">
                     <h2>{{ treemapTitle }}</h2>
-                    <!-- eslint-disable-next-line vue/no-v-html -->
-                    <p class="panel-note" v-html="treemapNote"></p>
+                    <!-- 摘要靠左，圖例與說明開關靠右，空間不夠時才換行 -->
+                    <div class="treemap-summary">
+                        <span class="panel-note">{{ treemapSummary }}</span>
+                        <span v-if="colorBy === 'change'" class="change-legend" aria-label="漲跌幅色階">
+                            <span class="change-legend-end">跌</span>
+                            <span
+                                v-for="step in changeSteps"
+                                :key="step.label"
+                                class="change-legend-step"
+                                :style="{ background: step.color }"
+                            >{{ step.label }}</span>
+                            <span class="change-legend-end">漲</span>
+                        </span>
+                        <span v-else class="flow-legend">
+                            <span class="swatch swatch-buy"></span>買超
+                            <span class="swatch swatch-sell"></span>賣超
+                        </span>
+                        <button
+                            type="button"
+                            class="note-toggle"
+                            :aria-expanded="treemapNoteOpen"
+                            @click="treemapNoteOpen = !treemapNoteOpen"
+                        >
+                            {{ treemapNoteOpen ? "收起說明" : "完整說明" }}
+                        </button>
+                    </div>
                 </div>
                 <button v-if="drill" type="button" class="back-btn" @click="exitDrill">
                     返回全{{ unitLabel }}
                 </button>
             </div>
-            <div v-if="colorBy === 'change'" class="change-legend" aria-label="漲跌幅色階">
-                <span class="change-legend-end">跌</span>
-                <span
-                    v-for="step in changeSteps"
-                    :key="step.label"
-                    class="change-legend-step"
-                    :style="{ background: step.color }"
-                >{{ step.label }}</span>
-                <span class="change-legend-end">漲</span>
+            <!-- eslint-disable-next-line vue/no-v-html -->
+            <p v-if="treemapNoteOpen" class="panel-note treemap-note" v-html="treemapNote"></p>
+            <div ref="treemapWrap">
+                <FlowTreemap
+                    :rows="treemapRows"
+                    :name-of="(row: any) => (drill ? row.name : row.industry)"
+                    :children-of="!drill && showStocks ? (row: any) => limitChildren(row, limits[row.industry]) : null"
+                    :child-name-of="(kid: any) => kid.name"
+                    :tooltip="drill ? stockTooltip : compositionTooltip"
+                    :digits="drill ? 2 : undefined"
+                    :height="!drill && showStocks ? `${tallTreemapHeight}px` : undefined"
+                    :color-by="colorBy"
+                    :area-by="areaBy"
+                    @select="enterDrill"
+                />
             </div>
-            <FlowTreemap
-                :rows="treemapRows"
-                :name-of="(row: any) => (drill ? row.name : row.industry)"
-                :children-of="!drill && showStocks ? (row: any) => limitChildren(row, limits[row.industry]) : null"
-                :child-name-of="(kid: any) => kid.name"
-                :tooltip="drill ? stockTooltip : compositionTooltip"
-                :digits="drill ? 2 : undefined"
-                :height="!drill && showStocks ? '620px' : undefined"
-                :color-by="colorBy"
-                :area-by="areaBy"
-                @select="enterDrill"
-            />
         </section>
 
         <section class="panel" data-nav="資金流向排行">
