@@ -434,6 +434,16 @@ def api_market_data():
         conn.close()
 
 
+@router.get("/liquidity")
+def api_liquidity():
+    """流動性觀察：美元指數與美債 2Y、10Y 殖利率。"""
+    conn = connect()
+    try:
+        return dataset.build_liquidity(conn)
+    finally:
+        conn.close()
+
+
 @router.get("/intraday")
 def api_intraday(force: bool = Query(False)):
     """盤中類股強弱。

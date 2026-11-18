@@ -10,7 +10,8 @@
    (上市約 16:00 才公布，排程跑得早會只拿到上櫃或整天沒有資料)
 6. 清除已不再追蹤的 ETF 持股 (例如停抓的海外 ETF)
 7. 抓取題材股的年度 EPS 共識 (Yahoo Finance，估值趨勢矩陣用)，失敗時只記錄、不中斷排程
-8. 大盤籌碼與總體指標：櫃買指數、三大法人金額、融資融券與維持率、匯率與 VIX。
+8. 大盤籌碼與總體指標：櫃買指數、三大法人金額、融資融券與維持率、匯率與 VIX，
+   以及流動性觀察的美元指數與美債 2Y、10Y 殖利率。
    籌碼的歷史每次只補一部分，失敗時只記錄、不中斷排程
 9. 集保股權分散表 (每週一份，開放資料只有最新一週)，並匯入 data/holders_manual/ 的補查資料。
    每天都檢查，已匯入的週次會略過；失敗時只記錄、不中斷排程
@@ -36,7 +37,7 @@ from app.services.etf_manual import import_manual
 from app.services import holders
 from app.services.index_ingest import ingest_index_months
 from app.services.credit_ingest import ingest_credit
-from app.services.market_ingest import ingest_macro, ingest_pending_chip, ingest_tpex_index
+from app.services.market_ingest import ingest_liquidity, ingest_macro, ingest_pending_chip, ingest_tpex_index
 from app.services.futures_ingest import ingest_future_daily, ingest_future_inst
 from app.services.ingest import ingest_date, update_stock_info
 from app.services.valuation import ingest_eps_estimates
@@ -153,6 +154,11 @@ def update_market(conn, today):
         print("總體指標：" + "、".join(f"{k} {v} 筆" for k, v in counts.items()))
     except Exception:
         logger.exception("總體指標抓取失敗")
+    try:
+        counts = ingest_liquidity(conn)
+        print("流動性觀察：" + "、".join(f"{k} {v} 筆" for k, v in counts.items()))
+    except Exception:
+        logger.exception("流動性觀察資料抓取失敗")
     try:
         # 今天若是交易日，加權指數已在前面寫入，會出現在交易日曆裡；
         # 另外明確帶入今天，指數尚未公布時也能先抓法人

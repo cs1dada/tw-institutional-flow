@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from "vue-router"
 import DailyView from "@/views/DailyView.vue"
 import IndexChartView from "@/views/IndexChartView.vue"
 import IndustryFlowView from "@/views/IndustryFlowView.vue"
+import LiquidityView from "@/views/LiquidityView.vue"
 import IntradayView from "@/views/IntradayView.vue"
 import QuoteView from "@/views/QuoteView.vue"
 import ReportView from "@/views/ReportView.vue"
@@ -47,6 +48,7 @@ export const router = createRouter({
         { path: "/quote", component: QuoteView },
         { path: "/sino", component: SinoQuoteView },
         { path: "/index", component: IndexChartView },
+        { path: "/liquidity", component: LiquidityView },
         { path: "/themes", component: ThemesView },
         { path: "/valuation", component: ValuationView },
         { path: "/holders", component: HoldersView },

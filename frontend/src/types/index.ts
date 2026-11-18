@@ -1130,3 +1130,12 @@ export interface HoldersStock {
     latest: { date: string; levels: HoldersLevel[] }
     previous: { date: string; levels: HoldersLevel[] } | null
 }
+
+/**
+ * 流動性觀察：[日期, 美元指數, 美債 2Y 殖利率 %, 美債 10Y 殖利率 %]，日期為美國時間。
+ * 美元指數與美債休市日不同，某天只有一方有值時另一方為 null
+ */
+export interface LiquidityData {
+    fields: string[]
+    items: [string, number | null, number | null, number | null][]
+}

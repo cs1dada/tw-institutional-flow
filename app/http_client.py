@@ -47,13 +47,16 @@ def get_session():
     return _session
 
 
-def fetch(url, params=None, as_json=True, encoding=None):
-    """發送 GET 請求，失敗時重試，回傳 JSON 或文字內容。"""
+def fetch(url, params=None, as_json=True, encoding=None, headers=None):
+    """發送 GET 請求，失敗時重試，回傳 JSON 或文字內容。
+
+    headers 會覆蓋共用 Session 的同名標頭，例如個別網站需要不同的 User-Agent。
+    """
     session = get_session()
     last_error = None
     for attempt in range(1, config.MAX_RETRY + 1):
         try:
-            resp = session.get(url, params=params, timeout=config.REQUEST_TIMEOUT)
+            resp = session.get(url, params=params, headers=headers, timeout=config.REQUEST_TIMEOUT)
             resp.raise_for_status()
             if as_json:
                 return resp.json()

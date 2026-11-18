@@ -38,6 +38,7 @@ const ITEMS: NavItem[] = [
     { to: "/etf", label: "主動式 ETF", desc: "持股與資金動向", prefix: true },
     { to: "/intraday", label: "盤中觀察", desc: "類股即時強弱", apiOnly: true },
     { to: "/index", label: "大盤指數", desc: "K 線、法人、融資與 VIX" },
+    { to: "/liquidity", label: "流動性觀察", desc: "美元 × 美債殖利率曲線" },
     { to: "/holders", label: "籌碼分布", desc: "集保股權分散：大戶與散戶 (每週)" },
     { to: "/valuation", label: "估值趨勢矩陣", desc: "前瞻本益比 × 均線走勢" },
     { to: "/themes", label: "題材分類", desc: "題材、環節與個股" },

@@ -69,6 +69,20 @@ MACRO_YAHOO_SYMBOLS = {MACRO_USDTWD: "TWD=X", MACRO_USVIX: "^VIX"}
 # Yahoo 每次取回的區間，涵蓋籌碼圖的顯示範圍即可
 MACRO_YAHOO_RANGE = "2y"
 
+# 流動性觀察：美元指數 (Yahoo) 與美債 2Y、10Y 殖利率 (FRED，美國財政部公布的固定期限殖利率)。
+# 同樣存在 macro_daily，日期皆為美國時間
+MACRO_DXY = "DXY"
+MACRO_UST2Y = "UST2Y"
+MACRO_UST10Y = "UST10Y"
+LIQUIDITY_DXY_SYMBOL = "DX-Y.NYB"
+LIQUIDITY_FRED_SERIES = {MACRO_UST2Y: "DGS2", MACRO_UST10Y: "DGS10"}
+# 每次重抓的區間 (年)。資料量很小，整段重抓可順便修正來源事後更正的數值
+LIQUIDITY_YEARS = 5
+FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+# FRED 前端的防爬機制會擋下偽裝成瀏覽器的 User-Agent (連線逾時或被重設)，
+# 以一般程式的名稱連線反而正常，因此不使用共用的 USER_AGENT
+FRED_USER_AGENT = "tw-institutional-flow/1.0"
+
 # 籌碼資料保留與回補的交易日數。每天要 4 個請求，一次回補完要將近一小時，
 # 因此每日排程每次只補 20 天 (約 4 分鐘)，兩週左右自然補齊；
 # 要一次補完可手動執行 backfill.yml 並填入 market_days

@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS credit_history (
     PRIMARY KEY (market, year)
 );
 
--- 總體指標日資料：美元兌台幣、台指 VIX、美國 VIX。
+-- 總體指標日資料：美元兌台幣、台指 VIX、美國 VIX，以及流動性觀察的美元指數、美債 2Y／10Y 殖利率。
 -- 日期為各自市場的交易日，美國 VIX 的日期是美國時間
 CREATE TABLE IF NOT EXISTS macro_daily (
     series          TEXT NOT NULL,

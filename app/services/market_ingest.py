@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta
 from app import config
 from app.db import connect
 from app.fetchers import market_chip
+from app.fetchers.fred import fetch_fred_daily
 from app.services.index_ingest import UPSERT_SQL as INDEX_UPSERT_SQL, recent_months
 
 logger = logging.getLogger(__name__)
@@ -292,4 +293,31 @@ def ingest_macro(conn):
     except Exception:
         logger.exception("台指 VIX 抓取失敗")
     counts[config.MACRO_TWVIX] = _save_series(conn, config.MACRO_TWVIX, vix_rows)
+    return counts
+
+
+def ingest_liquidity(conn):
+    """流動性觀察用的美元指數 (Yahoo) 與美債 2Y、10Y 殖利率 (FRED)，回傳 {序列: 筆數}。
+
+    兩個來源各自獨立，任一個失敗只記錄、不影響另一個。
+    """
+    counts = {}
+    years = config.LIQUIDITY_YEARS
+    try:
+        rows = market_chip.fetch_yahoo_daily(config.LIQUIDITY_DXY_SYMBOL, range_=f"{years}y")
+        counts[config.MACRO_DXY] = _save_series(conn, config.MACRO_DXY, rows)
+    except Exception:
+        logger.exception("美元指數 (%s) 抓取失敗", config.LIQUIDITY_DXY_SYMBOL)
+        counts[config.MACRO_DXY] = 0
+
+    fred_ids = config.LIQUIDITY_FRED_SERIES
+    try:
+        start = date.today() - timedelta(days=365 * years)
+        data = fetch_fred_daily(list(fred_ids.values()), start)
+        for series, fred_id in fred_ids.items():
+            counts[series] = _save_series(conn, series, data.get(fred_id, []))
+    except Exception:
+        logger.exception("美債殖利率 (FRED) 抓取失敗")
+        for series in fred_ids:
+            counts.setdefault(series, 0)
     return counts

@@ -23,6 +23,7 @@ import type {
     HoldersStock,
     HoldersWeek,
     IndexPayload,
+    LiquidityData,
     MarketPayload,
     Meta,
     ThemesData,
@@ -56,6 +57,7 @@ const SOURCES = {
         etf: () => versioned("data/etf.json"),
         index: () => versioned("data/index.json"),
         market: () => versioned("data/market.json"),
+        liquidity: () => versioned("data/liquidity.json"),
         etfCost: () => versioned("data/etf_cost.json"),
         etfCostDetail: (code: string) => versioned(`data/etf_cost/${code}.json`),
         etfDailyDates: () => versioned("data/etf_daily.json"),
@@ -80,6 +82,7 @@ const SOURCES = {
         etf: () => "/api/etf-data",
         index: () => "/api/index-data",
         market: () => "/api/market-data",
+        liquidity: () => "/api/liquidity",
         etfCost: () => "/api/etf-cost",
         etfCostDetail: (code: string) => `/api/etf-cost/${code}`,
         etfDailyDates: () => "/api/etf-daily",
@@ -123,6 +126,7 @@ const cache: {
     etf: EtfData | null
     index: IndexPayload | null
     market: MarketPayload | null
+    liquidity: LiquidityData | null
     etfCost: EtfCostSummary | null
     etfCostDetails: Map<string, EtfCostDetail>
     etfDailyDates: EtfDailyDates | null
@@ -146,6 +150,7 @@ const cache: {
     etf: null,
     index: null,
     market: null,
+    liquidity: null,
     etfCost: null,
     etfCostDetails: new Map(),
     etfDailyDates: null,
@@ -245,6 +250,18 @@ export async function loadMarket(): Promise<MarketPayload> {
     }
     const data = await fetchJson<MarketPayload>(SOURCES[MODE].market())
     cache.market = data
+    return data
+}
+
+export async function loadLiquidity(): Promise<LiquidityData> {
+    if (cache.liquidity) {
+        return cache.liquidity
+    }
+    if (isStatic && !dataVersion) {
+        await loadMeta()
+    }
+    const data = await fetchJson<LiquidityData>(SOURCES[MODE].liquidity())
+    cache.liquidity = data
     return data
 }
 
