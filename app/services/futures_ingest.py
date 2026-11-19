@@ -100,9 +100,32 @@ def ingest_future_daily(conn, commodities=DAILY_COMMODITIES, today=None):
     )
 
 
+def _fetch_inst_until_published(today):
+    """包裝法人未平倉的抓取：結束日是今天、但當天尚未公布時改查到前一天。
+
+    期交所這支下載在結束日的資料還沒公布時會整段拒絕 (回傳 HTML 錯誤頁)，
+    排程跑早或早上手動補資料時，區間只要含今天就會連前幾天都抓不到。
+    結束日是週末或其他已過去的休市日則不受影響，因此只需處理「今天」。
+    """
+    def fetch(commodity, start, end):
+        try:
+            return taifex.fetch_inst_futures(commodity, start, end)
+        except RuntimeError:
+            if end != today:
+                raise
+            if start >= today:
+                logger.info("法人期貨未平倉 %s 尚未公布", today)
+                return []
+            logger.info("法人期貨未平倉 %s 尚未公布，改查至前一天", today)
+            time.sleep(config.THROTTLE_SECONDS)
+            return taifex.fetch_inst_futures(commodity, start, today - timedelta(days=1))
+    return fetch
+
+
 def ingest_future_inst(conn, commodities=INST_COMMODITIES, today=None):
     """三大法人期貨未平倉，回傳 {契約: 取得的交易日數}。"""
+    today = today or date.today()
     return _ingest(
-        conn, "future_inst", commodities, taifex.fetch_inst_futures,
-        taifex.INST_MAX_DAYS, INST_UPSERT_SQL, today or date.today(),
+        conn, "future_inst", commodities, _fetch_inst_until_published(today),
+        taifex.INST_MAX_DAYS, INST_UPSERT_SQL, today,
     )
