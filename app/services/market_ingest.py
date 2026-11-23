@@ -271,6 +271,23 @@ def _save_series(conn, series, rows):
     return len(rows)
 
 
+def _replace_series(conn, series, rows):
+    """以抓回的資料取代該序列在同一段日期內的舊資料。
+
+    Yahoo 每次都回傳整段區間，以它為準：先刪掉區間內的舊列再寫入，
+    舊版日期換算錯誤 (夏令期間早一天) 留下的列也會一併清掉。
+    抓不到資料時不動舊資料。
+    """
+    if not rows:
+        return 0
+    dates = [d for d, _ in rows]
+    conn.execute(
+        "DELETE FROM macro_daily WHERE series = ? AND date BETWEEN ? AND ?",
+        (series, min(dates), max(dates)),
+    )
+    return _save_series(conn, series, rows)
+
+
 def ingest_macro(conn):
     """美元兌台幣、美國 VIX (Yahoo) 與台指 VIX (期交所)，回傳 {序列: 筆數}。
 
@@ -279,7 +296,7 @@ def ingest_macro(conn):
     counts = {}
     for series, symbol in config.MACRO_YAHOO_SYMBOLS.items():
         try:
-            counts[series] = _save_series(conn, series, market_chip.fetch_yahoo_daily(symbol))
+            counts[series] = _replace_series(conn, series, market_chip.fetch_yahoo_daily(symbol))
         except Exception:
             logger.exception("%s (%s) 抓取失敗", series, symbol)
             counts[series] = 0
@@ -313,7 +330,7 @@ def ingest_liquidity(conn):
     for series, symbol in yahoo.items():
         try:
             rows = market_chip.fetch_yahoo_daily(symbol, range_=f"{years}y")
-            counts[series] = _save_series(conn, series, rows)
+            counts[series] = _replace_series(conn, series, rows)
         except Exception:
             logger.exception("%s (%s) 抓取失敗", series, symbol)
             counts[series] = 0
