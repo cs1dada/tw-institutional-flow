@@ -297,18 +297,26 @@ def ingest_macro(conn):
 
 
 def ingest_liquidity(conn):
-    """流動性觀察用的美元指數 (Yahoo) 與美債 2Y、10Y 殖利率 (FRED)，回傳 {序列: 筆數}。
+    """流動性觀察用的美元指數、美元兌台幣、美股、比特幣、黃金 (Yahoo) 與美債 2Y、10Y 殖利率 (FRED)，
+    回傳 {序列: 筆數}。
 
-    兩個來源各自獨立，任一個失敗只記錄、不影響另一個。
+    各序列獨立抓取，任一個失敗只記錄、不影響其他。
+    美元兌台幣和大盤籌碼共用同一個序列，這裡多抓到五年供走勢圖使用。
     """
     counts = {}
     years = config.LIQUIDITY_YEARS
-    try:
-        rows = market_chip.fetch_yahoo_daily(config.LIQUIDITY_DXY_SYMBOL, range_=f"{years}y")
-        counts[config.MACRO_DXY] = _save_series(conn, config.MACRO_DXY, rows)
-    except Exception:
-        logger.exception("美元指數 (%s) 抓取失敗", config.LIQUIDITY_DXY_SYMBOL)
-        counts[config.MACRO_DXY] = 0
+    yahoo = {
+        config.MACRO_DXY: config.LIQUIDITY_DXY_SYMBOL,
+        config.MACRO_USDTWD: config.MACRO_YAHOO_SYMBOLS[config.MACRO_USDTWD],
+        **config.LIQUIDITY_ASSET_SYMBOLS,
+    }
+    for series, symbol in yahoo.items():
+        try:
+            rows = market_chip.fetch_yahoo_daily(symbol, range_=f"{years}y")
+            counts[series] = _save_series(conn, series, rows)
+        except Exception:
+            logger.exception("%s (%s) 抓取失敗", series, symbol)
+            counts[series] = 0
 
     fred_ids = config.LIQUIDITY_FRED_SERIES
     try:

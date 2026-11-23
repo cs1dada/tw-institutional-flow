@@ -602,34 +602,48 @@ def build_market(conn, days=config.MARKET_CHIP_DAYS):
 
 # 流動性觀察輸出的筆數，約五年
 LIQUIDITY_POINTS = 1400
-LIQUIDITY_FIELDS = ("date", "dxy", "us2y", "us10y")
+LIQUIDITY_FIELDS = ("date", "dxy", "us2y", "us10y", "usdtwd", "spx", "taiex", "btc", "gold")
 
 
 def build_liquidity(conn, points=LIQUIDITY_POINTS):
-    """美元指數與美債 2Y、10Y 殖利率，依日期對齊為 [日期, DXY, 2Y, 10Y]。
+    """流動性觀察的各序列，依日期對齊為 [日期, DXY, 2Y, 10Y, USD/TWD, 美股, 台股, 比特幣, 黃金]。
 
-    美元指數與美債的休市日不同，某天只有其中一方有值時另一方為 null，
-    由前端決定如何補值。日期皆為美國時間。
+    日期以美元指數或美債有值的日子為準 (美國交易日)，比特幣週末等其他日子不輸出，
+    當天沒有值的序列為 null，由前端沿用前一個值。
+    台股加權指數取自 index_daily，日期是台灣時間，和美國時間差一天，
+    以月為單位比較漲跌時影響不大。
     """
-    series = (config.MACRO_DXY, config.MACRO_UST2Y, config.MACRO_UST10Y)
+    series = (
+        config.MACRO_DXY, config.MACRO_UST2Y, config.MACRO_UST10Y, config.MACRO_USDTWD,
+        config.MACRO_SPX, config.MACRO_BTC, config.MACRO_GOLD,
+    )
     marks = ",".join("?" * len(series))
     rows = conn.execute(
         f"""
-        SELECT date,
-               MAX(CASE WHEN series = ? THEN value END) AS dxy,
-               MAX(CASE WHEN series = ? THEN value END) AS us2y,
-               MAX(CASE WHEN series = ? THEN value END) AS us10y
-        FROM macro_daily
-        WHERE series IN ({marks})
-        GROUP BY date
-        ORDER BY date DESC
+        SELECT m.*, i.close AS taiex
+        FROM (
+            SELECT date,
+                   MAX(CASE WHEN series = ? THEN value END) AS dxy,
+                   MAX(CASE WHEN series = ? THEN value END) AS us2y,
+                   MAX(CASE WHEN series = ? THEN value END) AS us10y,
+                   MAX(CASE WHEN series = ? THEN value END) AS usdtwd,
+                   MAX(CASE WHEN series = ? THEN value END) AS spx,
+                   MAX(CASE WHEN series = ? THEN value END) AS btc,
+                   MAX(CASE WHEN series = ? THEN value END) AS gold
+            FROM macro_daily
+            WHERE series IN ({marks})
+            GROUP BY date
+        ) AS m
+        LEFT JOIN index_daily AS i ON i.date = m.date AND i.index_code = 'TAIEX'
+        WHERE m.dxy IS NOT NULL OR m.us2y IS NOT NULL
+        ORDER BY m.date DESC
         LIMIT ?
         """,
         (*series, *series, points),
     ).fetchall()
     return {
         "fields": list(LIQUIDITY_FIELDS),
-        "items": [[r["date"], r["dxy"], r["us2y"], r["us10y"]] for r in reversed(rows)],
+        "items": [[r[f] for f in LIQUIDITY_FIELDS] for r in reversed(rows)],
     }
 
 

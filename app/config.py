@@ -78,6 +78,11 @@ LIQUIDITY_DXY_SYMBOL = "DX-Y.NYB"
 LIQUIDITY_FRED_SERIES = {MACRO_UST2Y: "DGS2", MACRO_UST10Y: "DGS10"}
 # 每次重抓的區間 (年)。資料量很小，整段重抓可順便修正來源事後更正的數值
 LIQUIDITY_YEARS = 5
+# 流動性觀察的資產對照：美股、比特幣、黃金 (Yahoo)；台股用 index_daily 的加權指數 (官方資料)
+MACRO_SPX = "SPX"
+MACRO_BTC = "BTC"
+MACRO_GOLD = "GOLD"
+LIQUIDITY_ASSET_SYMBOLS = {MACRO_SPX: "^GSPC", MACRO_BTC: "BTC-USD", MACRO_GOLD: "GC=F"}
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 # FRED 前端的防爬機制會擋下偽裝成瀏覽器的 User-Agent (連線逾時或被重設)，
 # 以一般程式的名稱連線反而正常，因此不使用共用的 USER_AGENT

@@ -1137,5 +1137,6 @@ export interface HoldersStock {
  */
 export interface LiquidityData {
     fields: string[]
-    items: [string, number | null, number | null, number | null][]
+    /** [日期, 美元指數, 美債 2Y, 美債 10Y, 美元兌台幣, 美股, 台股, 比特幣, 黃金]，該日沒有值的序列為 null */
+    items: [string, ...(number | null)[]][]
 }
