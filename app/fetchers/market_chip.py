@@ -12,6 +12,7 @@
 """
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app import config
 from app.fetchers.tpex import to_tpex_date
@@ -268,8 +269,13 @@ def fetch_tw_vix_month(year, month):
 def fetch_yahoo_daily(symbol, range_=config.MACRO_YAHOO_RANGE):
     """Yahoo Finance 日收盤，回傳 [(日期, 值)]，日期為該商品交易所的當地日期。
 
-    時間戳記是 UTC，加上回應裡的 gmtoffset 才是當地日期；
+    時間戳記是 UTC，要換成交易所時區才是當地日期；
     例如美國 VIX 的日期是美國時間，對台股而言是「前一晚」。
+
+    回應裡的 gmtoffset 是「現在」的時差，不能套用到整段歷史：
+    美元指數、黃金期貨與外匯的日線落在當地午夜，夏令時間的 K 棒若用冬令時差換算，
+    會變成前一天 23:00，日期整整早一天 (週五的資料跑到週四、週一的跑到週日)。
+    因此優先用 exchangeTimezoneName 依各時間點的實際時差換算。
     """
     payload = fetch(
         config.YAHOO_CHART_URL.format(symbol=symbol),
@@ -278,7 +284,13 @@ def fetch_yahoo_daily(symbol, range_=config.MACRO_YAHOO_RANGE):
     result = ((payload.get("chart") or {}).get("result") or [None])[0]
     if not result:
         return []
-    offset = timedelta(seconds=(result.get("meta") or {}).get("gmtoffset") or 0)
+    meta = result.get("meta") or {}
+    offset = timedelta(seconds=meta.get("gmtoffset") or 0)
+    try:
+        zone = ZoneInfo(meta["exchangeTimezoneName"])
+    except (KeyError, ZoneInfoNotFoundError):
+        zone = None
+    crypto = meta.get("instrumentType") == "CRYPTOCURRENCY"
     stamps = result.get("timestamp") or []
     quotes = ((result.get("indicators") or {}).get("quote") or [{}])[0]
     closes = quotes.get("close") or []
@@ -287,7 +299,11 @@ def fetch_yahoo_daily(symbol, range_=config.MACRO_YAHOO_RANGE):
     for stamp, close in zip(stamps, closes):
         if close is None:
             continue
-        local = datetime.fromtimestamp(stamp, tz=timezone.utc) + offset
+        moment = datetime.fromtimestamp(stamp, tz=timezone.utc)
+        local = moment.astimezone(zone) if zone else moment + offset
+        # 期貨週日傍晚就開盤，盤中那根 K 棒會落在週日；加密貨幣才有真正的週末行情
+        if local.weekday() >= 5 and not crypto:
+            continue
         # 同一天有兩筆時 (盤中的即時值) 以後者為準
         rows[local.strftime("%Y%m%d")] = round(float(close), 4)
     return sorted(rows.items())
