@@ -53,8 +53,13 @@ INDEX_BACKFILL_MONTHS = 120
 
 
 def refresh_stock_info_if_stale(conn):
-    """個股主檔過期時重新抓取。"""
-    row = conn.execute("SELECT MIN(updated_at) FROM stock_info").fetchone()
+    """個股主檔過期時重新抓取。
+
+    以最近一次更新時間 (MAX) 判斷，不可用 MIN：已下市或到期的標的不會再出現在
+    ISIN 清單中，它們的 updated_at 永遠停在舊日期，用 MIN 會讓每次排程都判定過期、
+    重抓整份主檔 (ISIN 網站從 GitHub 連線時常要十幾分鐘，曾因此超過 job 時限)。
+    """
+    row = conn.execute("SELECT MAX(updated_at) FROM stock_info").fetchone()
     if row and row[0]:
         updated = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
         if datetime.now() - updated < timedelta(days=STOCK_INFO_MAX_AGE_DAYS):
