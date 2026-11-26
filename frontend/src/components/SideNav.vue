@@ -42,6 +42,7 @@ const ITEMS: NavItem[] = [
     { to: "/holders", label: "籌碼分布", desc: "集保股權分散：大戶與散戶 (每週)" },
     { to: "/valuation", label: "估值趨勢矩陣", desc: "前瞻本益比 × 均線走勢" },
     { to: "/themes", label: "題材分類", desc: "題材、環節與個股" },
+    { to: "/backtest", label: "槓桿配置回測", desc: "0050、正 2 與股債再平衡" },
     { to: "/quote", label: "即時行情", desc: "富果：微台、大盤與個股", quoteOnly: true },
     { to: "/sino", label: "永豐行情", desc: "Shioaji：大台、大盤與個股", sinoOnly: true },
 ]

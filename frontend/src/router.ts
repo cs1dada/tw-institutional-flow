@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router"
 
+import BacktestView from "@/views/BacktestView.vue"
 import DailyView from "@/views/DailyView.vue"
 import IndexChartView from "@/views/IndexChartView.vue"
 import IndustryFlowView from "@/views/IndustryFlowView.vue"
@@ -52,6 +53,7 @@ export const router = createRouter({
         { path: "/themes", component: ThemesView },
         { path: "/valuation", component: ValuationView },
         { path: "/holders", component: HoldersView },
+        { path: "/backtest", component: BacktestView },
         { path: "/:pathMatch(.*)*", redirect: "/" },
     ],
 })
